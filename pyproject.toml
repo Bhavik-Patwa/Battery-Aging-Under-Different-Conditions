@@ -1,0 +1,28 @@
+[project]
+name = "adaptive-battery-aging-policy"
+version = "0.1.0"
+description = "Controlled analysis of lithium-ion battery degradation and operating policy."
+requires-python = ">=3.11,<3.12"
+dependencies = [
+    "google-cloud-storage>=3.14.1,<4.0",
+    "google-cloud-storage-transfer>=1.21.0,<2.0"
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4,<9.0"
+]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+testpaths = [
+    "tests"
+]
+python_files = [
+    "test_*.py"
+]
+pythonpath = [
+    "."
+]
