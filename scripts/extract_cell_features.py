@@ -13,6 +13,7 @@ from collections import Counter
 from datetime import date
 from pathlib import Path, PurePosixPath
 from statistics import median
+from concurrent.futures import ProcessPoolExecutor
 
 from google.cloud import storage
 
@@ -194,6 +195,15 @@ def parse_args() -> argparse.Namespace:
         default = DEFAULT_ARCHIVE_CACHE_DIRECTORY,
         help = (
             "Directory retaining integrity-validated compressed cell archives for repeatable local processing."
+        )
+    )
+
+    parser.add_argument(
+        "--worker-count",
+        type = int,
+        default = 1,
+        help = (
+            "Number of local archive-extraction processes. Use one for sequential processing."
         )
     )
 
@@ -3927,6 +3937,99 @@ def validate_feature_tables(cell_records: list[dict], condition_records: list[di
     }
 
 
+# Extracting one cached archive in an independent process
+def extract_cached_archive_work_item(
+    work_item: tuple[
+        str,
+        Path,
+        list[dict],
+        list[dict]
+    ]
+) -> tuple[
+    str,
+    list[dict],
+    list[dict]
+]:
+    (
+        archive_identity,
+        archive_path,
+        reference_inventory_records,
+        cycling_inventory_records
+    ) = work_item
+
+    try:
+        with zipfile.ZipFile(
+            archive_path,
+            mode = "r"
+        ) as archive:
+            (
+                reference_test_records,
+                cycling_measurement_records
+            ) = extract_cell_archive_records(
+                archive = archive,
+                reference_inventory_records = (
+                    reference_inventory_records
+                ),
+                cycling_inventory_records = (
+                    cycling_inventory_records
+                )
+            )
+
+    except Exception as exc:
+        raise RuntimeError(
+            f"Cached archive feature extraction failed : {archive_identity} : {exc}"
+        ) from exc
+
+    return (
+        archive_identity,
+        reference_test_records,
+        cycling_measurement_records
+    )
+
+
+# Processing cached archives with deterministic result ordering
+def extract_cached_archive_work_items(
+    work_items: list[
+        tuple[
+            str,
+            Path,
+            list[dict],
+            list[dict]
+        ]
+    ],
+    worker_count: int
+) -> list[
+    tuple[
+        str,
+        list[dict],
+        list[dict]
+    ]
+]:
+    if worker_count <= 0:
+        raise ValueError("Worker count must be a positive integer.")
+
+    if worker_count == 1:
+        return [
+            extract_cached_archive_work_item(
+                work_item
+            )
+            for work_item in work_items
+        ]
+
+    with ProcessPoolExecutor(
+        max_workers = worker_count
+    ) as executor:
+        extraction_results = list(
+            executor.map(
+                extract_cached_archive_work_item,
+                work_items,
+                chunksize = 1
+            )
+        )
+
+    return extraction_results
+
+
 # Extracting complete audited feature tables incrementally
 def main() -> None:
     args = parse_args()
@@ -4095,7 +4198,15 @@ def main() -> None:
         )
 
     print(
-        f"Processing cached archives : {len(archive_work_items)}"
+        "Processing cached archives : "
+        f"{len(archive_work_items)} : workers {args.worker_count}"
+    )
+
+    archive_extraction_results = (
+        extract_cached_archive_work_items(
+            work_items = archive_work_items,
+            worker_count = args.worker_count
+        )
     )
 
     reference_test_records = []
@@ -4103,27 +4214,9 @@ def main() -> None:
 
     for (
         archive_identity,
-        archive_path,
-        archive_reference_inventory,
-        archive_cycling_inventory
-    ) in archive_work_items:
-        with zipfile.ZipFile(
-            archive_path,
-            mode = "r"
-        ) as archive:
-            (
-                archive_reference_records,
-                archive_cycling_records
-            ) = extract_cell_archive_records(
-                archive = archive,
-                reference_inventory_records = (
-                    archive_reference_inventory
-                ),
-                cycling_inventory_records = (
-                    archive_cycling_inventory
-                )
-            )
-
+        archive_reference_records,
+        archive_cycling_records
+    ) in archive_extraction_results:
         reference_test_records.extend(
             archive_reference_records
         )
