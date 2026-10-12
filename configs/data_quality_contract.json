@@ -1,5 +1,5 @@
 {
-  "contract_version": 15,
+  "contract_version": 18,
   "dataset": {
     "figshare_article_id": 25975315,
     "figshare_version": 1,
@@ -87,6 +87,35 @@
       "primary_available_definition": "Gross days between reference-test start dates.",
       "future_definition": "Net aging exposure excluding reference-test duration and documented pauses.",
       "status": "gross_approved_net_pending"
+    },
+    "delivery_state_characteristics": {
+      "initial_cell_mass": {
+        "source_column": "m_0",
+        "unit": "gram",
+        "status": "descriptive_baseline_characteristic"
+      },
+      "initial_1khz_resistance": {
+        "source_column": "R_1khz_0",
+        "source_unit_label": "ohm",
+        "observed_source_value_minimum": 11.84,
+        "observed_source_value_maximum": 14.42,
+        "unit_status": "unresolved_source_label_conflicts_with_observed_scale_and_cell_specification",
+        "conversion_status": "not_applied",
+        "status": "descriptive_only_until_unit_resolved"
+      },
+      "initial_voltage": {
+        "source_column": "U_0",
+        "unit": "volt",
+        "status": "descriptive_baseline_characteristic"
+      }
+    },
+    "source_header_artifacts": {
+      "volt_meter_leading_whitespace": {
+        "source_field_name": " volt_meter",
+        "normalized_field_name": "volt_meter",
+        "rule": "exact_documented_alias_only",
+        "unsupported_header_whitespace_disposition": "rejected"
+      }
     }
   },
   "downstream_incident_rules": [

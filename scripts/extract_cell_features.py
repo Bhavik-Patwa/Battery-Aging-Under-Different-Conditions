@@ -36,6 +36,16 @@ REQUIRED_COLUMNS = {
     "step_type"
 }
 
+REQUIRED_CELL_FEATURE_EXPERIMENT_COLUMNS = {
+    *REQUIRED_EXPERIMENT_COLUMNS,
+    "m_0",
+    "scale",
+    "R_1khz_0",
+    "resistance_meter",
+    "U_0",
+    "volt_meter"
+}
+
 SECONDS_PER_HOUR = 3600
 SECONDS_PER_DAY = 24 * SECONDS_PER_HOUR
 OCV_GRID_INTERVAL_COUNT = 1000
@@ -60,6 +70,13 @@ REFERENCE_MEASUREMENT_PATTERN = re.compile(
     r"(?P<protocol>ET_T23|CU|exCU|AT_T23)\.csv$"
 )
 
+NON_ANALYTICAL_REFERENCE_MEASUREMENT_PATTERN = re.compile(
+    r"^(?P<dataset_stage>Stage_[12])/"
+    r"(?P<cell_folder>TP_[kz]\d{2}_\d{2})/"
+    r"(?P=cell_folder)_(?P<sequence_number>\d{2})_"
+    r"(?P<protocol>ET_T10|ET_T45|AT_T10|AT_T45)\.csv$"
+)
+
 CYCLING_MEASUREMENT_PATTERN = re.compile(
     r"^(?P<dataset_stage>Stage_[12])/"
     r"(?P<cell_folder>TP_z\d{2}_\d{2})/"
@@ -77,8 +94,15 @@ CYCLING_EXPOSURE_INCIDENT_REASON_CODES = {
     "FIFTEEN_DAY_CYCLING_PAUSE"
 }
 
+PARTIALLY_OBSERVED_CYCLING_REASON_CODES = {
+    "PARTIALLY_MISSING_CYCLING_MEASUREMENT",
+    "TWO_DAYS_OF_CYCLING_DATA_MISSING"
+}
+
 FEATURE_COLUMN_UNITS = {
     "ambient_temperature_celsius": "degree_Celsius",
+    "initial_cell_mass_grams": "gram",
+    "initial_voltage_volts": "volt",
     "maximum_state_of_charge_fraction": "fraction",
     "depth_of_discharge_fraction": "fraction",
     "charge_rate_c": "C_rate",
@@ -132,6 +156,12 @@ DEFAULT_AUDIT_PATH = (
     / "data"
     / "interim"
     / "dataset_quality_audit.json"
+)
+
+DEFAULT_CONTRACT_PATH = (
+    PROJECT_ROOT
+    / "configs"
+    / "data_quality_contract.json"
 )
 
 DEFAULT_OUTPUT_DIRECTORY = (
@@ -204,6 +234,15 @@ def parse_args() -> argparse.Namespace:
         default = 1,
         help = (
             "Number of local archive-extraction processes. Use one for sequential processing."
+        )
+    )
+
+    parser.add_argument(
+        "--contract-path",
+        type = Path,
+        default = DEFAULT_CONTRACT_PATH,
+        help = (
+            "Exact data-quality contract used to produce the controlling audit."
         )
     )
 
@@ -351,7 +390,7 @@ def extract_capacity_from_rows(measurement_rows: list[ReferenceMeasurementRow]) 
 
     for (
         elapsed_seconds,
-        voltage_volts,
+        _voltage_volts,
         current_amperes,
         step_type
     ) in measurement_rows:
@@ -517,7 +556,6 @@ def extract_cycle_throughput(measurement_stream: io.TextIOBase, reference_capaci
     previous_step_type = None
     previous_current_amperes = None
 
-    direction_mismatch_count = 0
     direction_mismatch_ampere_seconds = 0.0
     maximum_direction_mismatch_interval_seconds = 0.0
 
@@ -848,9 +886,9 @@ def extract_ocv_reference_from_rows(measurement_rows: list[ReferenceMeasurementR
     }
 
     for (
-        elapsed_seconds,
+        _elapsed_seconds,
         voltage_volts,
-        current_amperes,
+        _current_amperes,
         step_type
     ) in measurement_rows:
         if step_type not in section_voltages:
@@ -946,17 +984,15 @@ def extract_dc_internal_resistance_from_rows(measurement_rows: list[ReferenceMea
 
     for (
         elapsed_seconds,
-        voltage_volts,
-        current_amperes,
-        step_type
+        _voltage_volts,
+        _current_amperes,
+        _step_type
     ) in measurement_rows:
         if (
             prior_elapsed_seconds is not None
             and elapsed_seconds < prior_elapsed_seconds
         ):
-            raise RuntimeError(
-                "Resistance-measurement timestamps are not ordered."
-            )
+            raise RuntimeError("Resistance-measurement timestamps are not ordered.")
         prior_elapsed_seconds = elapsed_seconds
 
     pulse_indices = [
@@ -969,6 +1005,16 @@ def extract_dc_internal_resistance_from_rows(measurement_rows: list[ReferenceMea
 
     if not pulse_indices:
         raise FeatureUnavailableError("The measurement does not contain a step-5032 pulse.")
+
+    expected_pulse_indices = list(
+        range(
+            pulse_indices[0],
+            pulse_indices[-1] + 1
+        )
+    )
+
+    if pulse_indices != expected_pulse_indices:
+        raise RuntimeError("The measurement contains multiple disjoint step-5032 pulse sections.")
 
     pulse_start_seconds = measurement_rows[
         pulse_indices[0]
@@ -1316,17 +1362,73 @@ def load_feature_audit(audit_path: Path) -> dict:
         )
         is not None
     ):
-        raise RuntimeError(
-            "Feature extraction requires a completed audit without execution failures."
-        )
+        raise RuntimeError("Feature extraction requires a completed audit without execution failures.")
 
     return audit_result
 
 
+# Validating the exact quality contract against the completed audit
+def load_validated_quality_contract_binding(contract_path: Path, audit_result: dict) -> dict:
+    contract_bytes = contract_path.read_bytes()
+
+    quality_contract = json.loads(
+        contract_bytes.decode(
+            "utf-8"
+        )
+    )
+
+    contract_version = quality_contract.get(
+        "contract_version"
+    )
+
+    if (
+        contract_version
+        != audit_result["contract_version"]
+    ):
+        raise RuntimeError(
+            "Data-quality contract version does not match the completed audit : "
+            f"{contract_version} : {audit_result['contract_version']}"
+        )
+
+    observed_sha256 = hashlib.sha256(
+        contract_bytes
+    ).hexdigest()
+
+    audit_binding = audit_result.get(
+        "quality_contract"
+    )
+
+    if audit_binding is None:
+        raise RuntimeError("Completed audit does not contain an exact quality-contract binding.")
+
+    if (
+        audit_binding.get(
+            "contract_version"
+        )
+        != contract_version
+    ):
+        raise RuntimeError("Audit quality-contract version does not match the supplied contract.")
+
+    if (
+        audit_binding.get(
+            "sha256"
+        )
+        != observed_sha256
+    ):
+        raise RuntimeError(
+            "Data-quality contract SHA-256 does not match the completed audit : "
+            f"{observed_sha256} : {audit_binding.get('sha256')}"
+        )
+
+    return {
+        "file_name": contract_path.name,
+        "contract_version": contract_version,
+        "sha256": observed_sha256
+    }
+
+
 # Resolving sensitivity eligibility without overriding unresolved reviews
-def resolve_sensitivity_eligibility(
-    measurement_audit: dict
-) -> bool | None:
+def resolve_sensitivity_eligibility(measurement_audit: dict) -> bool | None:
     disposition = measurement_audit[
         "disposition"
     ]
@@ -1429,6 +1531,16 @@ def parse_experiment_number(value: str, field_name: str, cell_identity: str) -> 
         )
 
     return numerical_value
+
+
+# Parsing one required non-empty experiment-metadata text value
+def parse_required_experiment_text(value: str, field_name: str, cell_identity: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise RuntimeError(
+            f"Experiment metadata contains an unavailable required text value : {cell_identity} : {field_name}"
+        )
+
+    return value
 
 
 # Building the audited reference-measurement extraction inventory
@@ -1831,6 +1943,196 @@ def build_cycling_measurement_inventory(audit_result: dict) -> list[dict]:
             ]
         )
     )
+
+
+# Hashing a deterministic inventory of source identities
+def calculate_identity_inventory_sha256(source_identities: set[str]) -> str:
+    serialized_inventory = (
+        json.dumps(
+            sorted(
+                source_identities
+            ),
+            ensure_ascii = False,
+            separators = (
+                ",",
+                ":"
+            )
+        )
+        + "\n"
+    )
+
+    return hashlib.sha256(
+        serialized_inventory.encode(
+            "utf-8"
+        )
+    ).hexdigest()
+
+
+# Reconciling every audited measurement with extraction scope
+def build_source_measurement_reconciliation(audit_result: dict, reference_measurement_inventory: list[dict],
+                                            cycling_measurement_inventory: list[dict]
+) -> dict:
+    audited_source_identities = [
+        measurement_record[
+            "source_identity"
+        ]
+        for archive_record in audit_result[
+            "archives"
+        ]
+        for measurement_record in archive_record[
+            "measurements"
+        ]
+    ]
+
+    if len(
+        audited_source_identities
+    ) != len(
+        set(
+            audited_source_identities
+        )
+    ):
+        raise RuntimeError("Completed audit contains duplicate measurement source identities.")
+
+    audited_source_identity_set = set(
+        audited_source_identities
+    )
+
+    analytical_reference_identities = {
+        record["source_identity"]
+        for record in reference_measurement_inventory
+    }
+
+    analytical_cycling_identities = {
+        record["source_identity"]
+        for record in cycling_measurement_inventory
+    }
+
+    overlapping_analytical_identities = (
+        analytical_reference_identities.intersection(
+            analytical_cycling_identities
+        )
+    )
+
+    if overlapping_analytical_identities:
+        raise RuntimeError(
+            "Measurements appear in both analytical reference and cycling inventories : "
+            f"{sorted(overlapping_analytical_identities)[:20]}"
+        )
+
+    analytical_identities = (
+        analytical_reference_identities
+        | analytical_cycling_identities
+    )
+
+    unknown_analytical_identities = (
+        analytical_identities.difference(
+            audited_source_identity_set
+        )
+    )
+
+    if unknown_analytical_identities:
+        raise RuntimeError(
+            "Analytical inventories contain measurements absent from the controlling audit : "
+            f"{sorted(unknown_analytical_identities)[:20]}"
+        )
+
+    intentionally_not_extracted_identities = (
+        audited_source_identity_set.difference(
+            analytical_identities
+        )
+    )
+
+    intentionally_not_extracted_protocol_counts = Counter()
+
+    unexpected_unaccounted_identities = []
+
+    for source_identity in sorted(
+        intentionally_not_extracted_identities
+    ):
+        identity_match = (
+            NON_ANALYTICAL_REFERENCE_MEASUREMENT_PATTERN.fullmatch(
+                source_identity
+            )
+        )
+
+        if identity_match is None:
+            unexpected_unaccounted_identities.append(
+                source_identity
+            )
+
+            continue
+
+        intentionally_not_extracted_protocol_counts[
+            identity_match.group(
+                "protocol"
+            )
+        ] += 1
+
+    if unexpected_unaccounted_identities:
+        raise RuntimeError(
+            "Audited measurements are neither analytically extracted nor covered by the approved non-analytical "
+            f"reference scope : {unexpected_unaccounted_identities[:20]}"
+        )
+
+    reconciled_measurement_count = (
+        len(
+            analytical_reference_identities
+        )
+        + len(
+            analytical_cycling_identities
+        )
+        + len(
+            intentionally_not_extracted_identities
+        )
+    )
+
+    audited_measurement_count = len(
+        audited_source_identity_set
+    )
+
+    if (
+        reconciled_measurement_count
+        != audited_measurement_count
+    ):
+        raise RuntimeError(
+            f"Audited measurement reconciliation failed : {reconciled_measurement_count} : {audited_measurement_count}"
+        )
+
+    return {
+        "audited_measurement_count": (
+            audited_measurement_count
+        ),
+        "analytical_reference_measurement_count": len(
+            analytical_reference_identities
+        ),
+        "analytical_cycling_measurement_count": len(
+            analytical_cycling_identities
+        ),
+        "analytical_measurement_count": len(
+            analytical_identities
+        ),
+        "intentionally_not_extracted_measurement_count": len(
+            intentionally_not_extracted_identities
+        ),
+        "intentionally_not_extracted_protocol_counts": dict(
+            sorted(
+                intentionally_not_extracted_protocol_counts.items()
+            )
+        ),
+        "intentionally_not_extracted_reason": (
+            "reference_temperature_measurement_outside_"
+            "approved_23_celsius_longitudinal_outcome_definition"
+        ),
+        "intentionally_not_extracted_source_identity_sha256": (
+            calculate_identity_inventory_sha256(
+                intentionally_not_extracted_identities
+            )
+        ),
+        "reconciled_measurement_count": (
+            reconciled_measurement_count
+        ),
+        "reconciliation_complete": True
+    }
 
 
 # Adding gross calendar time from audited measurement dates
@@ -2316,7 +2618,8 @@ def find_unobserved_cycling_sequences(archive_quality_reasons: list[dict]) -> se
 
 
 # Adding observed cumulative FEC and exposure eligibility
-def add_audited_cumulative_cycle_exposure(reference_test_records: list[dict], cycling_measurement_records: list[dict]) -> None:
+def add_audited_cumulative_cycle_exposure(reference_test_records: list[dict], cycling_measurement_records: list[dict]
+) -> None:
     cycling_records_by_cell = {}
 
     for cycling_measurement_record in (
@@ -2337,6 +2640,55 @@ def add_audited_cumulative_cycle_exposure(reference_test_records: list[dict], cy
         cell_identity = reference_test_record[
             "cell_identity"
         ]
+
+        cell_folder = PurePosixPath(
+            cell_identity
+        ).name
+
+        if cell_folder.startswith(
+            "TP_k"
+        ):
+            reference_test_record[
+                "cumulative_full_equivalent_cycles_observed"
+            ] = None
+
+            reference_test_record[
+                "cumulative_step_label_full_equivalent_cycles_observed"
+            ] = None
+
+            reference_test_record[
+                "cumulative_step_label_fec_difference_observed"
+            ] = None
+
+            reference_test_record[
+                "cumulative_fec_observation_complete"
+            ] = None
+
+            reference_test_record[
+                "cumulative_fec_primary_eligible"
+            ] = False
+
+            reference_test_record[
+                "cumulative_fec_sensitivity_eligible"
+            ] = False
+
+            reference_test_record[
+                "cumulative_fec_status"
+            ] = "not_applicable"
+
+            reference_test_record[
+                "unavailable_cycling_sequence_numbers"
+            ] = []
+
+            reference_test_record[
+                "partially_observed_cycling_sequence_numbers"
+            ] = []
+
+            reference_test_record[
+                "temporally_discontinuous_cycling_sequence_numbers"
+            ] = []
+
+            continue
 
         reference_sequence_number = (
             reference_test_record[
@@ -2373,10 +2725,7 @@ def add_audited_cumulative_cycle_exposure(reference_test_records: list[dict], cy
             for sequence_number in (
                 missing_sequence_numbers
             )
-            if (
-                sequence_number
-                < reference_sequence_number
-            )
+            if sequence_number < reference_sequence_number
         )
 
         extracted_cycling_records = [
@@ -2410,6 +2759,22 @@ def add_audited_cumulative_cycle_exposure(reference_test_records: list[dict], cy
                     if cycling_measurement_record not in (
                         extracted_cycling_records
                     )
+                )
+            }
+        )
+
+        partially_observed_sequence_numbers = sorted(
+            {
+                cycling_measurement_record[
+                    "sequence_number"
+                ]
+                for cycling_measurement_record in (
+                    preceding_cycling_records
+                )
+                if PARTIALLY_OBSERVED_CYCLING_REASON_CODES.intersection(
+                    cycling_measurement_record[
+                        "quality_reason_codes"
+                    ]
                 )
             }
         )
@@ -2451,23 +2816,22 @@ def add_audited_cumulative_cycle_exposure(reference_test_records: list[dict], cy
 
         observation_complete = (
             not unavailable_sequence_numbers
+            and not partially_observed_sequence_numbers
             and not temporally_discontinuous_sequence_numbers
         )
 
-        primary_eligibility = (
-            resolve_combined_eligibility(
-                [
-                    observation_complete,
-                    *(
-                        cycling_measurement_record[
-                            "primary_exposure_eligible"
-                        ]
-                        for cycling_measurement_record in (
-                            preceding_cycling_records
-                        )
+        primary_eligibility = resolve_combined_eligibility(
+            [
+                observation_complete,
+                *(
+                    cycling_measurement_record[
+                        "primary_exposure_eligible"
+                    ]
+                    for cycling_measurement_record in (
+                        preceding_cycling_records
                     )
-                ]
-            )
+                )
+            ]
         )
 
         sensitivity_eligibility = (
@@ -2514,8 +2878,22 @@ def add_audited_cumulative_cycle_exposure(reference_test_records: list[dict], cy
         ] = sensitivity_eligibility
 
         reference_test_record[
+            "cumulative_fec_status"
+        ] = (
+            "complete"
+            if observation_complete
+            else "incomplete"
+        )
+
+        reference_test_record[
             "unavailable_cycling_sequence_numbers"
         ] = unavailable_sequence_numbers
+
+        reference_test_record[
+            "partially_observed_cycling_sequence_numbers"
+        ] = (
+            partially_observed_sequence_numbers
+        )
 
         reference_test_record[
             "temporally_discontinuous_cycling_sequence_numbers"
@@ -3023,13 +3401,63 @@ def build_cell_feature_records(experiment_metadata_content: str, reference_measu
         )
     )
 
+    # Normalizing only the documented source header artifact. Any other surrounding whitespace on a
+    #  header name is treated as an undocumented source malformation and rejected rather than silently
+    #  normalized. Duplicate column names created by the documented alias are rejected as well.
+    experiment_metadata_header_aliases = {
+        " volt_meter": "volt_meter"
+    }
+
+    if metadata_reader.fieldnames is not None:
+        source_field_names = metadata_reader.fieldnames
+
+        undocumented_whitespace_field_names = sorted(
+            field_name
+            for field_name in source_field_names
+            if (
+                field_name != field_name.strip()
+                and field_name
+                not in experiment_metadata_header_aliases
+            )
+        )
+
+        if undocumented_whitespace_field_names:
+            raise RuntimeError(
+                "Experiment metadata contains undocumented surrounding header whitespace : "
+                f"{undocumented_whitespace_field_names}"
+            )
+
+        normalized_field_names = [
+            experiment_metadata_header_aliases.get(
+                field_name,
+                field_name
+            )
+            for field_name in source_field_names
+        ]
+
+        duplicate_field_names = sorted(
+            field_name
+            for field_name, field_count in Counter(
+                normalized_field_names
+            ).items()
+            if field_count > 1
+        )
+
+        if duplicate_field_names:
+            raise RuntimeError(
+                "Experiment metadata contains duplicate column names after documented header normalization : "
+                f"{duplicate_field_names}"
+            )
+
+        metadata_reader.fieldnames = normalized_field_names
+
     available_columns = set(
         metadata_reader.fieldnames
         or []
     )
 
     missing_columns = (
-        REQUIRED_EXPERIMENT_COLUMNS.difference(
+        REQUIRED_CELL_FEATURE_EXPERIMENT_COLUMNS.difference(
             available_columns
         )
     )
@@ -3190,6 +3618,52 @@ def build_cell_feature_records(experiment_metadata_content: str, reference_measu
                 ),
                 "condition_protocol_identity": (
                     condition_protocol_identity
+                ),
+                "initial_cell_mass_grams": (
+                    parse_experiment_number(
+                        value = experiment_record["m_0"],
+                        field_name = "m_0",
+                        cell_identity = cell_identity
+                    )
+                ),
+                "initial_cell_mass_scale": (
+                    parse_required_experiment_text(
+                        value = experiment_record["scale"],
+                        field_name = "scale",
+                        cell_identity = cell_identity
+                    )
+                ),
+                "initial_1khz_resistance_source_value": (
+                    parse_experiment_number(
+                        value = experiment_record["R_1khz_0"],
+                        field_name = "R_1khz_0",
+                        cell_identity = cell_identity
+                    )
+                ),
+                "initial_1khz_resistance_source_unit_label": "ohm",
+                "initial_1khz_resistance_unit_status": (
+                    "unresolved_source_label_conflicts_with_observed_scale_and_cell_specification"
+                ),
+                "initial_1khz_resistance_meter": (
+                    parse_required_experiment_text(
+                        value = experiment_record["resistance_meter"],
+                        field_name = "resistance_meter",
+                        cell_identity = cell_identity
+                    )
+                ),
+                "initial_voltage_volts": (
+                    parse_experiment_number(
+                        value = experiment_record["U_0"],
+                        field_name = "U_0",
+                        cell_identity = cell_identity
+                    )
+                ),
+                "initial_voltage_meter": (
+                    parse_required_experiment_text(
+                        value = experiment_record["volt_meter"],
+                        field_name = "volt_meter",
+                        cell_identity = cell_identity
+                    )
                 )
             }
         )
@@ -3871,9 +4345,17 @@ def validate_feature_tables(cell_records: list[dict], condition_records: list[di
 
     cumulative_fec_incomplete_count = sum(
         reference_test_record[
-            "cumulative_fec_observation_complete"
-        ]
-        is False
+            "cumulative_fec_status"
+        ] == "incomplete"
+        for reference_test_record in (
+            reference_test_records
+        )
+    )
+
+    cumulative_fec_not_applicable_count = sum(
+        reference_test_record[
+            "cumulative_fec_status"
+        ] == "not_applicable"
         for reference_test_record in (
             reference_test_records
         )
@@ -3918,6 +4400,9 @@ def validate_feature_tables(cell_records: list[dict], condition_records: list[di
         ),
         "cumulative_fec_incomplete_count": (
             cumulative_fec_incomplete_count
+        ),
+        "cumulative_fec_not_applicable_count": (
+            cumulative_fec_not_applicable_count
         ),
         "reference_extraction_failure_count": (
             reference_extraction_failure_count
@@ -4038,6 +4523,13 @@ def main() -> None:
         audit_path = args.audit_path
     )
 
+    quality_contract_binding = (
+        load_validated_quality_contract_binding(
+            contract_path = args.contract_path,
+            audit_result = audit_result
+        )
+    )
+
     reference_measurement_inventory = (
         build_reference_measurement_inventory(
             audit_result
@@ -4047,6 +4539,18 @@ def main() -> None:
     cycling_measurement_inventory = (
         build_cycling_measurement_inventory(
             audit_result
+        )
+    )
+
+    source_measurement_reconciliation = (
+        build_source_measurement_reconciliation(
+            audit_result = audit_result,
+            reference_measurement_inventory = (
+                reference_measurement_inventory
+            ),
+            cycling_measurement_inventory = (
+                cycling_measurement_inventory
+            )
         )
     )
 
@@ -4364,10 +4868,16 @@ def main() -> None:
                 "contract_version"
             ]
         ),
+        "quality_contract": (
+            quality_contract_binding
+        ),
         "dataset": audit_result[
             "dataset"
         ],
         "audit_sha256": audit_sha256,
+        "source_measurement_reconciliation": (
+            source_measurement_reconciliation
+        ),
         "feature_contract": audit_result[
             "feature_contract"
         ],

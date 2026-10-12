@@ -31,7 +31,9 @@ from scripts.extract_cell_features import (
     FeatureUnavailableError,
     parse_reference_measurement_rows,
     extract_capacity_from_rows,
-    extract_ocv_reference_from_rows
+    extract_ocv_reference_from_rows,
+    build_source_measurement_reconciliation,
+    load_validated_quality_contract_binding
 )
 
 from scripts.validate_ingested_dataset import (
@@ -527,6 +529,29 @@ def test_extract_dc_internal_resistance() -> None:
     )
 
 
+# Rejecting multiple disjoint resistance-pulse sections
+def test_extract_dc_internal_resistance_rejects_disjoint_pulse_sections() -> None:
+    measurement_content = (
+        "run_time,c_vol,c_cur,step_type\n"
+        "00:00:00.000,3.6,0,0\n"
+        "00:00:01.000,3.5,-5,5032\n"
+        "00:00:02.000,3.5,-5,5032\n"
+        "00:00:03.000,3.6,0,0\n"
+        "00:00:04.000,3.5,-5,5032\n"
+        "00:00:05.000,3.5,-5,5032\n"
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match = "multiple disjoint step-5032 pulse sections"
+    ):
+        extract_dc_internal_resistance(
+            measurement_stream = io.StringIO(
+                measurement_content
+            )
+        )
+
+
 # Confirming that capacity integration does not cross protocol boundaries
 def test_extract_capacity_integrates_only_contiguous_sections() -> None:
     measurement_content = (
@@ -978,6 +1003,7 @@ def test_add_audited_cumulative_cycle_exposure_records_missing_exposure() -> Non
         {
             "cell_identity": "Stage_1/TP_z19_01",
             "sequence_number": 2,
+            "quality_reason_codes": [],
             "feature_extraction_status": "completed",
             "full_equivalent_cycles": 50.0,
             "step_label_full_equivalent_cycles": 49.5,
@@ -1117,13 +1143,17 @@ def test_build_cell_and_condition_feature_records() -> None:
     experiment_metadata_content = (
         "serial_internal,serial,lab,type,tp,cell,"
         "amb_temp_tp,soc_max_tp,dod_tp,c_ch_tp,"
-        "c_dch_tp,sampling,stage\n"
+        "c_dch_tp,sampling,stage,"
+        "m_0,scale,R_1khz_0,resistance_meter,U_0, volt_meter\n"
         "S001,TP_k01_01,SIE,k,1,1,"
-        "23,0.8,0,0,0,FF,1\n"
+        "23,0.8,0,0,0,FF,1,"
+        "45.1,scale_a,13.44,meter_a,3.61,volt_meter_a\n"
         "S002,TP_k01_04,SIE,k,1,4,"
-        "23,0.8,0,0,0,FF,1\n"
+        "23,0.8,0,0,0,FF,1,"
+        "45.2,scale_a,13.55,meter_a,3.62,volt_meter_a\n"
         "S003,TP_z02_01,SIE,z,2,1,"
-        "35,0.8,0.6,1,1,cLH,1\n"
+        "35,0.8,0.6,1,1,cLH,1,"
+        "45.3,scale_a,13.61,meter_a,3.63,volt_meter_a\n"
     )
 
     reference_measurement_inventory = [
@@ -1163,9 +1193,54 @@ def test_build_cell_and_condition_feature_records() -> None:
     assert len(condition_records) == 3
 
     assert cell_records[0][
-        "ambient_temperature_celsius"
+        "initial_cell_mass_grams"
     ] == pytest.approx(
-        23.0
+        45.1
+    )
+
+    assert cell_records[0][
+        "initial_1khz_resistance_source_value"
+    ] == pytest.approx(
+        13.44
+    )
+
+    assert (
+        cell_records[0][
+            "initial_1khz_resistance_source_unit_label"
+        ]
+        == "ohm"
+    )
+
+    assert (
+        cell_records[0][
+            "initial_1khz_resistance_unit_status"
+        ]
+        == (
+            "unresolved_source_label_conflicts_with_observed_scale_and_cell_specification"
+        )
+    )
+
+    assert (
+        "initial_1khz_resistance_ohms"
+        not in cell_records[0]
+    )
+
+    assert cell_records[0][
+        "initial_cell_mass_scale"
+    ] == "scale_a"
+
+    assert cell_records[0][
+        "initial_1khz_resistance_meter"
+    ] == "meter_a"
+
+    assert cell_records[0][
+        "initial_voltage_meter"
+    ] == "volt_meter_a"
+
+    assert cell_records[0][
+        "initial_voltage_volts"
+    ] == pytest.approx(
+        3.61
     )
 
     assert {
@@ -1184,6 +1259,36 @@ def test_build_cell_and_condition_feature_records() -> None:
         ]
         for condition_record in condition_records
     ) == 3
+
+
+# Rejecting experiment metadata that omits the required delivery-state columns
+def test_build_cell_feature_records_rejects_missing_baseline_columns() -> None:
+    experiment_metadata_content = (
+        "serial_internal,serial,lab,type,tp,cell,"
+        "amb_temp_tp,soc_max_tp,dod_tp,c_ch_tp,"
+        "c_dch_tp,sampling,stage\n"
+        "S001,TP_k01_01,SIE,k,1,1,"
+        "23,0.8,0,0,0,FF,1\n"
+    )
+
+    reference_measurement_inventory = [
+        {
+            "cell_identity": "Stage_1/TP_k01_01"
+        }
+    ]
+
+    with pytest.raises(
+        RuntimeError,
+        match = "missing required columns"
+    ):
+        build_cell_feature_records(
+            experiment_metadata_content = (
+                experiment_metadata_content
+            ),
+            reference_measurement_inventory = (
+                reference_measurement_inventory
+            )
+        )
 
 
 # Confirming that gross calendar time uses the initial reference-test date
@@ -1419,6 +1524,13 @@ def test_build_feature_table_schema() -> None:
     assert FEATURE_COLUMN_UNITS[
         "elapsed_calendar_days"
     ] == "day"
+
+    assert (
+        FEATURE_COLUMN_UNITS.get(
+            "initial_1khz_resistance_source_value"
+        )
+        is None
+    )
 
 
 # Confirming that integral numeric step labels retain their meaning
@@ -1659,6 +1771,7 @@ def test_add_audited_cumulative_cycle_exposure_records_temporal_discontinuity() 
                 "TP_z23_01_22_ZYK.csv"
             ),
             "sequence_number": 22,
+            "quality_reason_codes": [],
             "feature_extraction_status": "completed",
             "full_equivalent_cycles": 10.0,
             "step_label_full_equivalent_cycles": 10.0,
@@ -1716,6 +1829,7 @@ def test_add_audited_cumulative_cycle_exposure_accepts_null_reversal_count() -> 
                 "TP_z19_01_04_ZYK.csv"
             ),
             "sequence_number": 4,
+            "quality_reason_codes": [],
             "feature_extraction_status": "unavailable",
             "full_equivalent_cycles": None,
             "step_label_full_equivalent_cycles": None,
@@ -1749,6 +1863,7 @@ def test_add_audited_cumulative_cycle_exposure_accepts_null_reversal_count() -> 
     ] == []
 
 
+# Confirming parsed reference-measurement rows use canonical step labels
 def test_parse_reference_measurement_rows_normalizes_step_labels() -> None:
     measurement_content = (
         "run_time,c_vol,c_cur,step_type\n"
@@ -1762,6 +1877,7 @@ def test_parse_reference_measurement_rows_normalizes_step_labels() -> None:
     assert rows[1][3] == "21"
 
 
+# Confirming stream wrappers and parsed-row entry points produce identical results
 def test_stream_wrapper_and_from_rows_agree() -> None:
     measurement_content = (
         "run_time,c_vol,c_cur,step_type\n"
@@ -1780,7 +1896,8 @@ def test_stream_wrapper_and_from_rows_agree() -> None:
     assert stream_result == from_rows_result
 
 
-def test_single_parsed_rows_produce_capacity_ocv_and_dcir() -> None:
+# Confirming one parsed reference measurement produces capacity and OCV
+def test_single_parsed_rows_produce_capacity_and_ocv() -> None:
     measurement_content = (
         "run_time,c_vol,c_cur,step_type\n"
         "00:00:00.000,3.7,1,21\n"
@@ -1800,3 +1917,413 @@ def test_single_parsed_rows_produce_capacity_ocv_and_dcir() -> None:
     assert extract_capacity_from_rows(rows)["mean_capacity_ah"] == pytest.approx(1.0)
     ocv = extract_ocv_reference_from_rows(rows)
     assert ocv is not None
+
+
+# Confirming that partially recorded cycling makes cumulative exposure incomplete
+def test_add_audited_cumulative_cycle_exposure_records_partial_measurement() -> None:
+    reference_test_records = [
+        {
+            "cell_identity": "Stage_2/TP_z04_01",
+            "source_identity": (
+                "Stage_2/TP_z04_01/"
+                "TP_z04_01_25_CU.csv"
+            ),
+            "sequence_number": 25,
+            "archive_quality_reasons": []
+        }
+    ]
+
+    cycling_measurement_records = [
+        {
+            "cell_identity": "Stage_2/TP_z04_01",
+            "source_identity": (
+                "Stage_2/TP_z04_01/"
+                "TP_z04_01_24_ZYK.csv"
+            ),
+            "sequence_number": 24,
+            "quality_reason_codes": [
+                "TWO_DAYS_OF_CYCLING_DATA_MISSING"
+            ],
+            "feature_extraction_status": "completed",
+            "full_equivalent_cycles": 40.0,
+            "step_label_full_equivalent_cycles": 40.0,
+            "primary_exposure_eligible": False,
+            "sensitivity_exposure_eligible": None,
+            "segmented_timestamp_reversal_count": 0
+        }
+    ]
+
+    add_audited_cumulative_cycle_exposure(
+        reference_test_records = reference_test_records,
+        cycling_measurement_records = (
+            cycling_measurement_records
+        )
+    )
+
+    reference_record = reference_test_records[0]
+
+    assert reference_record[
+        "cumulative_full_equivalent_cycles_observed"
+    ] == pytest.approx(40.0)
+
+    assert reference_record[
+        "cumulative_fec_observation_complete"
+    ] is False
+
+    assert reference_record[
+        "cumulative_fec_status"
+    ] == "incomplete"
+
+    assert reference_record[
+        "partially_observed_cycling_sequence_numbers"
+    ] == [24]
+
+
+# Confirming that cumulative FEC is not applicable to calendar-aging cells
+def test_add_audited_cumulative_cycle_exposure_marks_calendar_cells_not_applicable() -> None:
+    reference_test_records = [
+        {
+            "cell_identity": "Stage_1/TP_k01_01",
+            "source_identity": (
+                "Stage_1/TP_k01_01/"
+                "TP_k01_01_01_ET_T23.csv"
+            ),
+            "sequence_number": 1,
+            "archive_quality_reasons": []
+        }
+    ]
+
+    add_audited_cumulative_cycle_exposure(
+        reference_test_records = reference_test_records,
+        cycling_measurement_records = []
+    )
+
+    reference_record = reference_test_records[0]
+
+    assert reference_record[
+        "cumulative_full_equivalent_cycles_observed"
+    ] is None
+
+    assert reference_record[
+        "cumulative_fec_observation_complete"
+    ] is None
+
+    assert reference_record[
+        "cumulative_fec_primary_eligible"
+    ] is False
+
+    assert reference_record[
+        "cumulative_fec_status"
+    ] == "not_applicable"
+
+
+def test_source_measurement_reconciliation_accounts_for_every_source() -> None:
+    audit_result = {
+        "archives": [
+            {
+                "measurements": [
+                    {
+                        "source_identity": (
+                            "Stage_1/TP_k01_01/"
+                            "TP_k01_01_01_ET_T23.csv"
+                        )
+                    },
+                    {
+                        "source_identity": (
+                            "Stage_1/TP_k01_01/"
+                            "TP_k01_01_01_ET_T10.csv"
+                        )
+                    },
+                    {
+                        "source_identity": (
+                            "Stage_1/TP_k01_01/"
+                            "TP_k01_01_01_ET_T45.csv"
+                        )
+                    },
+                    {
+                        "source_identity": (
+                            "Stage_1/TP_z01_01/"
+                            "TP_z01_01_02_ZYK.csv"
+                        )
+                    }
+                ]
+            }
+        ]
+    }
+
+    reconciliation = (
+        build_source_measurement_reconciliation(
+            audit_result = audit_result,
+            reference_measurement_inventory = [
+                {
+                    "source_identity": (
+                        "Stage_1/TP_k01_01/"
+                        "TP_k01_01_01_ET_T23.csv"
+                    )
+                }
+            ],
+            cycling_measurement_inventory = [
+                {
+                    "source_identity": (
+                        "Stage_1/TP_z01_01/"
+                        "TP_z01_01_02_ZYK.csv"
+                    )
+                }
+            ]
+        )
+    )
+
+    assert reconciliation[
+        "audited_measurement_count"
+    ] == 4
+
+    assert reconciliation[
+        "analytical_measurement_count"
+    ] == 2
+
+    assert reconciliation[
+        "intentionally_not_extracted_measurement_count"
+    ] == 2
+
+    assert reconciliation[
+        "intentionally_not_extracted_protocol_counts"
+    ] == {
+        "ET_T10": 1,
+        "ET_T45": 1
+    }
+
+    assert reconciliation[
+        "reconciliation_complete"
+    ] is True
+
+
+# Rejecting an unrecognized unaccounted protocol
+def test_source_measurement_reconciliation_rejects_unknown_protocol() -> None:
+    audit_result = {
+        "archives": [
+            {
+                "measurements": [
+                    {
+                        "source_identity": (
+                            "Stage_1/TP_k01_01/"
+                            "TP_k01_01_01_XX_T99.csv"
+                        )
+                    }
+                ]
+            }
+        ]
+    }
+
+    with pytest.raises(
+        RuntimeError,
+        match = (
+            "neither analytically extracted nor covered by the approved non-analytical reference scope"
+        )
+    ):
+        build_source_measurement_reconciliation(
+            audit_result = audit_result,
+            reference_measurement_inventory = [],
+            cycling_measurement_inventory = []
+        )
+
+
+# Confirming that matching version and hash pass
+def test_load_validated_quality_contract_binding_accepts_match(tmp_path: Path) -> None:
+    contract_path = tmp_path / "contract.json"
+    contract_content = (
+        '{"contract_version": 15}\n'
+    )
+    contract_path.write_text(
+        contract_content,
+        encoding = "utf-8"
+    )
+
+    contract_sha256 = hashlib.sha256(
+        contract_content.encode("utf-8")
+    ).hexdigest()
+
+    binding = load_validated_quality_contract_binding(
+        contract_path = contract_path,
+        audit_result = {
+            "contract_version": 15,
+            "quality_contract": {
+                "file_name": "contract.json",
+                "contract_version": 15,
+                "sha256": contract_sha256
+            }
+        }
+    )
+
+    assert binding["contract_version"] == 15
+    assert binding["sha256"] == contract_sha256
+
+
+# Rejecting a version mismatch
+def test_load_validated_quality_contract_binding_rejects_version_mismatch(tmp_path: Path) -> None:
+    contract_path = tmp_path / "contract.json"
+    contract_path.write_text(
+        '{"contract_version": 15}\n',
+        encoding = "utf-8"
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match = "version does not match"
+    ):
+        load_validated_quality_contract_binding(
+            contract_path = contract_path,
+            audit_result = {
+                "contract_version": 16,
+                "quality_contract": {
+                    "file_name": "contract.json",
+                    "contract_version": 16,
+                    "sha256": "anything"
+                }
+            }
+        )
+
+
+# Rejecting a hash mismatch
+def test_load_validated_quality_contract_binding_rejects_hash_mismatch(tmp_path: Path) -> None:
+    contract_path = tmp_path / "contract.json"
+    contract_path.write_text(
+        '{"contract_version": 15}\n',
+        encoding = "utf-8"
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match = "SHA-256 does not match"
+    ):
+        load_validated_quality_contract_binding(
+            contract_path = contract_path,
+            audit_result = {
+                "contract_version": 15,
+                "quality_contract": {
+                    "file_name": "contract.json",
+                    "contract_version": 15,
+                    "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+                }
+            }
+        )
+
+
+# Rejecting a missing audit binding
+def test_load_validated_quality_contract_binding_rejects_missing_binding(tmp_path: Path) -> None:
+    contract_path = tmp_path / "contract.json"
+    contract_path.write_text(
+        '{"contract_version": 15}\n',
+        encoding = "utf-8"
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match = "does not contain an exact quality-contract binding"
+    ):
+        load_validated_quality_contract_binding(
+            contract_path = contract_path,
+            audit_result = {
+                "contract_version": 15
+            }
+        )
+
+
+# Confirming that the documented leading-space header is normalized
+def test_build_cell_feature_records_normalizes_documented_volt_meter_header() -> None:
+    experiment_metadata_content = (
+        "serial_internal,serial,lab,type,tp,cell,"
+        "amb_temp_tp,soc_max_tp,dod_tp,c_ch_tp,"
+        "c_dch_tp,sampling,stage,"
+        "m_0,scale,R_1khz_0,resistance_meter,U_0, volt_meter\n"
+        "S001,TP_k01_01,SIE,k,1,1,"
+        "23,0.8,0,0,0,FF,1,"
+        "45.1,scale_a,13.44,meter_a,3.61,volt_meter_a\n"
+    )
+
+    reference_measurement_inventory = [
+        {
+            "cell_identity": "Stage_1/TP_k01_01"
+        }
+    ]
+
+    cell_records = build_cell_feature_records(
+        experiment_metadata_content = (
+            experiment_metadata_content
+        ),
+        reference_measurement_inventory = (
+            reference_measurement_inventory
+        )
+    )
+
+    assert len(cell_records) == 1
+
+    assert cell_records[0][
+        "initial_voltage_meter"
+    ] == "volt_meter_a"
+
+    assert cell_records[0][
+        "initial_cell_mass_scale"
+    ] == "scale_a"
+
+    assert cell_records[0][
+        "initial_1khz_resistance_meter"
+    ] == "meter_a"
+
+
+# Rejecting duplicated headers after whitespace normalization
+def test_build_cell_feature_records_rejects_whitespace_header_collision() -> None:
+    experiment_metadata_content = (
+        "serial_internal,serial,lab,type,tp,cell,"
+        "amb_temp_tp,soc_max_tp,dod_tp,c_ch_tp,"
+        "c_dch_tp,sampling,stage,"
+        "m_0,scale,R_1khz_0,resistance_meter,U_0,"
+        "volt_meter, volt_meter\n"
+        "S001,TP_k01_01,SIE,k,1,1,"
+        "23,0.8,0,0,0,FF,1,"
+        "45.1,scale_a,13.44,meter_a,3.61,"
+        "volt_meter_a,volt_meter_b\n"
+    )
+
+    reference_measurement_inventory = [
+        {
+            "cell_identity": "Stage_1/TP_k01_01"
+        }
+    ]
+
+    with pytest.raises(RuntimeError):
+        build_cell_feature_records(
+            experiment_metadata_content = (
+                experiment_metadata_content
+            ),
+            reference_measurement_inventory = (
+                reference_measurement_inventory
+            )
+        )
+
+
+# Rejecting undocumented surrounding whitespace in metadata headers
+def test_build_cell_feature_records_rejects_undocumented_header_whitespace() -> None:
+    experiment_metadata_content = (
+        "serial_internal,serial,lab,type,tp,cell,"
+        "amb_temp_tp,soc_max_tp,dod_tp,c_ch_tp,"
+        "c_dch_tp,sampling,stage,"
+        "m_0, scale,R_1khz_0,resistance_meter,U_0, volt_meter\n"
+        "S001,TP_k01_01,SIE,k,1,1,"
+        "23,0.8,0,0,0,FF,1,"
+        "45.1,scale_a,13.44,meter_a,3.61,volt_meter_a\n"
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match = "undocumented surrounding header whitespace"
+    ):
+        build_cell_feature_records(
+            experiment_metadata_content = (
+                experiment_metadata_content
+            ),
+            reference_measurement_inventory = [
+                {
+                    "cell_identity": "Stage_1/TP_k01_01"
+                }
+            ]
+        )

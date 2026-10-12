@@ -6,6 +6,7 @@ import math
 import re
 import sys
 import zipfile
+import hashlib
 
 from collections import Counter
 from pathlib import Path, PurePosixPath
@@ -2848,12 +2849,23 @@ def audit_cloud_archive(bucket: storage.Bucket, article_metadata: dict,
     }
 
 
+# Calculating one deterministic file digest
+def calculate_sha256(file_path: Path) -> str:
+    return hashlib.sha256(
+        file_path.read_bytes()
+    ).hexdigest()
+
+
 # Auditing metadata and selected landed archives
 def main() -> None:
     args = parse_args()
 
     quality_contract = load_quality_contract(
         contract_path = args.contract_path
+    )
+
+    quality_contract_sha256 = calculate_sha256(
+        args.contract_path
     )
 
     storage_client = storage.Client(
@@ -3030,6 +3042,13 @@ def main() -> None:
         "contract_version": quality_contract[
             "contract_version"
         ],
+        "quality_contract": {
+            "file_name": args.contract_path.name,
+            "contract_version": quality_contract[
+                "contract_version"
+            ],
+            "sha256": quality_contract_sha256
+        },
         "dataset": observed_dataset_identity,
         "experiment_metadata": (
             experiment_metadata_audit
