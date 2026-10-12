@@ -1,0 +1,47 @@
+{
+  "policy_version": "1.4",
+  "calendar_exposure_policy": {
+    "primary_time_axis": "elapsed_calendar_days",
+    "primary_estimand": "whole_assigned_protocol_outcome_difference_at_common_elapsed_calendar_time",
+    "primary_estimand_availability": "available",
+    "primary_model_authorization": "permitted_with_restrictions",
+    "net_storage_exposure_estimand": "outcome_difference_at_common_net_calendar_aging_time",
+    "net_storage_exposure_availability": "unavailable",
+    "net_storage_exposure_model_authorization": "not_authorized",
+    "claim_boundary": "Gross elapsed calendar days support whole-protocol comparisons only. They do not identify time under storage, isolate calendar-aging exposure, or exclude time spent in reference tests and documented pauses.",
+    "rationale": "The agreed calendar estimand uses common observed elapsed-time horizons and reference-test schedule is an assigned protocol factor. Net storage exposure remains a distinct unavailable estimand."
+  },
+  "longitudinal_observation_policy": {
+    "support_horizon_requirement": "strictly_positive",
+    "baseline_horizon_role": "excluded_from_support_determination_and_primary_longitudinal_response",
+    "model_specific_baseline_use": "requires_explicit_normalization_aware_justification",
+    "source_observation_rule": "all_eligible_positive_horizon_observations_from_support_region_member_cells",
+    "support_interval_role": "prediction_and_estimand_evaluation_domain",
+    "observations_outside_support_interval": "permitted_only_for_support_region_member_cells_to_establish_within_cell_bracketing",
+    "estimand_evaluation_mode": "continuous_trajectory_over_supported_ranges",
+    "discrete_horizon_status": "not_authorized_without_outcome_blind_pre_specification",
+    "point_contrast_requirement": "outcome_blind_scientific_or_protocol_pre_specification_before_comparative_results_are_examined",
+    "rationale": "Relative outcomes equal one at baseline by construction. Positive-horizon support ranges define continuous trajectory domains without authorizing extrapolation or assuming valid interpolation."
+  },
+  "treatment_evaluation_policy": {
+    "authorized_domain": "observed_condition_protocol_combinations_only",
+    "unobserved_joint_treatment_combinations": "not_authorized_by_design_audit",
+    "continuous_treatment_interpolation": "requires_separate_model_specific_validation",
+    "one_factor_contrast_structure": "requires_exactly_one_changed_treatment_and_no_disjoint_or_identity_conflicted_equipment_allocation",
+    "one_factor_contrast_identification": "not_established_assignment_mechanism_undocumented",
+    "joint_condition_comparison_support": "permitted_with_restrictions_when_replication_horizon_support_and_context_requirements_are_satisfied",
+    "rationale": "Observed treatment combinations may be compared as joint conditions. A one-factor contrast structure records that only one assigned treatment differs; it does not identify an isolated treatment effect because the assignment mechanism is undocumented."
+  },
+  "support_mode": "within_cell_bracketing_ranges",
+  "coverage_rules": {
+    "primary": {
+      "minimum_assigned_cell_coverage_fraction": 1.0,
+      "rationale": "Primary support requires every assigned cell in a condition to contain eligible observations spanning the reported interval."
+    },
+    "sensitivity": {
+      "minimum_assigned_cell_coverage_fraction": 0.6666666666666666,
+      "rationale": "Sensitivity support permits one unavailable cell in a three-cell condition while retaining at least two independent cells."
+    }
+  },
+  "horizon_definitions": []
+}

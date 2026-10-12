@@ -5,7 +5,8 @@ description = "Controlled analysis of lithium-ion battery degradation and operat
 requires-python = ">=3.11,<3.12"
 dependencies = [
     "google-cloud-storage>=3.14.1,<4.0",
-    "google-cloud-storage-transfer>=1.21.0,<2.0"
+    "google-cloud-storage-transfer>=1.21.0,<2.0",
+    "numpy>=2.0,<3.0"
 ]
 
 [dependency-groups]
