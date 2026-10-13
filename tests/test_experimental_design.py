@@ -1,45 +1,71 @@
 import json
+import shutil
+import math
 from pathlib import Path
+import scripts.audit_experimental_design as module
 
 import numpy as np
 import pytest
 
 from scripts.audit_experimental_design import (
-    summarize_common_horizon_support,
-    classify_estimand_support,
-    measure_categorical_dependence,
-    parse_nullable_boolean,
-    build_treatment_combination_identity,
-    positive_feature_available,
-    record_has_positive_horizon,
-    build_test_point_design,
-    build_design_matrix,
-    build_stage_overlap,
-    build_equipment_inventory,
-    build_analytical_test_point_design,
-    build_analytical_cell_design,
-    build_context_adjusted_design_matrix,
-    build_population_identifiability,
-    build_estimand_support,
-    build_design_findings,
     OUTCOME_DEFINITIONS,
     CONTEXT_FIELDS,
     DESIGN_PROVENANCE_FIELDS,
-    build_context_families,
+    CELL_LEVEL_BASELINE_FIELDS,
     CONTEXT_FAMILY_NONE,
     CONTEXT_FAMILY_LABORATORY,
+    parse_nullable_boolean,
+    load_validated_table,
+    load_analysis_policy,
+    calculate_sha256,
+    positive_feature_available,
+    record_has_positive_horizon,
+    build_treatment_combination_identity,
+    measure_categorical_dependence,
+    build_equipment_inventory,
+    build_reference_measurement_equipment_by_source_identity,
+    build_reference_measurement_equipment_summary,
+    build_equipment_signature,
+    classify_reference_measurement_equipment_relationship,
+    compare_equipment_allocation,
+    classify_exposure_context,
+    calculate_standardized_mean_difference,
+    build_baseline_balance_diagnostics,
+    build_test_point_design,
+    build_design_matrix,
+    build_analytical_test_point_design,
+    build_analytical_cell_design,
+    build_horizon_specific_cell_design,
+    build_context_adjusted_design_matrix,
+    build_design_scopes,
+    build_population_identifiability,
+    build_stage_overlap,
+    build_design_findings,
+    summarize_common_horizon_support,
+    calculate_supported_intervals,
+    intersect_supported_intervals,
+    evaluate_cell_horizon_support,
     build_continuous_support_regions,
-    apply_final_estimand_classifications,
-    build_analytical_scope_table,
     jointly_compact_support_regions,
-    validate_cohort_aligned_support_regions
+    build_continuous_support_identifiability,
+    validate_cohort_aligned_support_regions,
+    build_context_families,
+    collect_condition_protocol_identities,
+    classify_estimand_support,
+    build_estimand_support,
+    apply_final_estimand_classifications,
+    build_question_disposition,
+    direct_supported_records,
+    direct_supported_question_count,
+    build_analytical_scope_table,
+    create_staging_output_directory,
+    write_and_publish_design_artifacts
 )
-
 
 # Building one valid analysis-policy payload for deterministic tests
 def build_valid_policy_payload() -> dict:
     return {
-        "policy_version": "1.4",
+        "policy_version": "1.5",
         "support_mode": (
             "within_cell_bracketing_ranges"
         ),
@@ -118,7 +144,11 @@ def build_valid_policy_payload() -> dict:
                 "requires_separate_model_specific_validation"
             ),
             "one_factor_contrast_structure": (
-                "requires_exactly_one_changed_treatment_and_no_disjoint_or_identity_conflicted_equipment_allocation"
+                "requires_exactly_one_changed_assigned_treatment"
+            ),
+            "one_factor_condition_comparison_support": (
+                "permitted_with_restrictions_when_direct_contrast_"
+                "support_requirements_are_satisfied"
             ),
             "one_factor_contrast_identification": (
                 "not_established_assignment_mechanism_undocumented"
@@ -414,7 +444,7 @@ def test_classify_estimand_support_requires_replication() -> None:
     )
 
 
-# Confirming conflicted equipment metadata restricts but does not veto support
+# Confirming conflicted equipment metadata restricts but does not preclude support
 def test_classify_estimand_support_records_equipment_conflict() -> None:
     assert classify_estimand_support(
         changed_treatment_count = 1,
@@ -431,7 +461,7 @@ def test_classify_estimand_support_records_equipment_conflict() -> None:
     )
 
 
-# Confirming disjoint equipment allocation restricts but does not veto support
+# Confirming disjoint equipment allocation restricts but does not preclude support
 def test_classify_estimand_support_records_equipment_aliasing() -> None:
     assert classify_estimand_support(
         changed_treatment_count = 1,
@@ -448,8 +478,8 @@ def test_classify_estimand_support_records_equipment_aliasing() -> None:
     )
 
 
-# Confirming equipment disjointness restricts but does not veto support
-def test_equipment_disjointness_is_a_restriction_not_support_veto() -> None:
+# Confirming equipment disjointness restricts but does not preclude support
+def test_equipment_disjointness_does_not_determine_support() -> None:
     status, detail = classify_estimand_support(
         changed_treatment_count = 2,
         context_difference_count = 0,
@@ -933,7 +963,7 @@ def test_build_design_findings() -> None:
                     "supported_with_restrictions"
                 ),
                 "direct_contrast_support_detail": (
-                    "replicated_one_factor_descriptive_contrast"
+                    "replicated_one_factor_analytical_contrast_with_restrictions"
                 )
             }
         ],
@@ -1301,8 +1331,6 @@ def test_build_estimand_support_retains_equipment_relationships() -> None:
 
 # Confirming conflicted equipment does not enter validated equipment signatures
 def test_build_equipment_signature_rejects_conflicted_equipment() -> None:
-    from scripts.audit_experimental_design import build_equipment_signature
-
     equipment_by_cell = {
         "Stage_1/TP_z01_01": {
             "reference_measurement": {
@@ -1967,10 +1995,6 @@ def test_stage_overlap_records_overlap_basis() -> None:
 
 # Rejecting discrete-horizon support mode with no approved horizons
 def test_load_analysis_policy_rejects_empty_horizon_definitions(tmp_path: Path) -> None:
-    from scripts.audit_experimental_design import (
-        load_analysis_policy
-    )
-
     policy = build_valid_policy_payload()
 
     policy["support_mode"] = (
@@ -2000,10 +2024,6 @@ def test_load_analysis_policy_rejects_empty_horizon_definitions(tmp_path: Path) 
 
 # Confirming exact-observation support is available when a horizon matches
 def test_evaluate_cell_horizon_support_exact_observation() -> None:
-    from scripts.audit_experimental_design import (
-        evaluate_cell_horizon_support
-    )
-
     support = evaluate_cell_horizon_support(
         horizon_values = [10.0, 30.0],
         horizon = 10.0,
@@ -2018,10 +2038,6 @@ def test_evaluate_cell_horizon_support_exact_observation() -> None:
 
 # Confirming within-cell bracketing is used when the horizon is interior
 def test_evaluate_cell_horizon_support_within_cell_bracketing() -> None:
-    from scripts.audit_experimental_design import (
-        evaluate_cell_horizon_support
-    )
-
     support = evaluate_cell_horizon_support(
         horizon_values = [10.0, 30.0],
         horizon = 20.0,
@@ -2038,10 +2054,6 @@ def test_evaluate_cell_horizon_support_within_cell_bracketing() -> None:
 
 # Rejecting bracketing spans that exceed the policy
 def test_evaluate_cell_horizon_support_rejects_wide_bracketing() -> None:
-    from scripts.audit_experimental_design import (
-        evaluate_cell_horizon_support
-    )
-
     support = evaluate_cell_horizon_support(
         horizon_values = [10.0, 100.0],
         horizon = 55.0,
@@ -2056,18 +2068,265 @@ def test_evaluate_cell_horizon_support_rejects_wide_bracketing() -> None:
     )
 
 
-# Confirming an undefined pooled variance returns None
+# Confirming identical constant groups produce an undefined SMD
 def test_calculate_standardized_mean_difference_undefined_variance() -> None:
-    from scripts.audit_experimental_design import (
-        calculate_standardized_mean_difference
-    )
-
-    result = calculate_standardized_mean_difference(
+    value, status = calculate_standardized_mean_difference(
         first_values = [5.0, 5.0],
         second_values = [5.0, 5.0]
     )
 
-    assert result is None
+    assert value is None
+    assert status == "undefined_no_within_group_variation"
+
+
+# Confirming constant groups with different means produce undefined SMDs
+def test_calculate_standardized_mean_difference_constant_groups_different_means() -> None:
+    value, status = calculate_standardized_mean_difference(
+        first_values = [3.575, 3.575, 3.575],
+        second_values = [3.574, 3.574, 3.574]
+    )
+
+    assert value is None
+    assert status == "undefined_no_within_group_variation"
+
+
+# Confirming one constant and one varying group still produces a defined SMD
+def test_calculate_standardized_mean_difference_one_constant_one_varying() -> None:
+    value, status = calculate_standardized_mean_difference(
+        first_values = [5.0, 5.0, 5.0],
+        second_values = [3.0, 4.0, 5.0]
+    )
+
+    assert value is not None
+    assert math.isfinite(value)
+    assert status == "defined"
+
+
+# Confirming two varying groups produce a finite defined SMD
+def test_calculate_standardized_mean_difference_defined_with_variance() -> None:
+    value, status = calculate_standardized_mean_difference(
+        first_values = [4.9, 5.0, 5.1],
+        second_values = [4.5, 4.6, 4.7]
+    )
+
+    assert value is not None
+    assert math.isfinite(value)
+    assert status == "defined"
+
+
+# Confirming non-finite input is explicitly unavailable
+def test_calculate_standardized_mean_difference_nonfinite_input() -> None:
+    value, status = calculate_standardized_mean_difference(
+        first_values = [1.0, float("nan")],
+        second_values = [2.0, 3.0]
+    )
+
+    assert value is None
+    assert status == "undefined_nonfinite_input"
+
+
+# Confirming ET-derived baselines carry exact initial-reference equipment
+def test_baseline_balance_retains_initial_reference_equipment() -> None:
+    cell_records = [
+        {
+            "cell_identity": "Stage_1/TP_k01_01",
+            "condition_protocol_identity": (
+                "Stage_1/TP_k01/periodic_reference_tests"
+            ),
+            "dataset_stage": "Stage_1",
+            "aging_type": "k",
+            "aging_mode": "calendar_aging",
+            "test_point_number": "1",
+            "laboratory": "SIE",
+            "sampling_method": "FF"
+        },
+        {
+            "cell_identity": "Stage_1/TP_k02_01",
+            "condition_protocol_identity": (
+                "Stage_1/TP_k02/periodic_reference_tests"
+            ),
+            "dataset_stage": "Stage_1",
+            "aging_type": "k",
+            "aging_mode": "calendar_aging",
+            "test_point_number": "2",
+            "laboratory": "SIE",
+            "sampling_method": "FF"
+        }
+    ]
+
+    reference_records = [
+        {
+            "cell_identity": "Stage_1/TP_k01_01",
+            "source_identity": (
+                "Stage_1/TP_k01_01/"
+                "TP_k01_01_01_ET_T23.csv"
+            ),
+            "sequence_number": "1",
+            "mean_capacity_ah": "4.90",
+            "uncorrected_dc_internal_resistance_milliohms": "22.5",
+            "baseline_voltage_volts": "3.60"
+        },
+        {
+            "cell_identity": "Stage_1/TP_k02_01",
+            "source_identity": (
+                "Stage_1/TP_k02_01/"
+                "TP_k02_01_01_ET_T23.csv"
+            ),
+            "sequence_number": "1",
+            "mean_capacity_ah": "4.95",
+            "uncorrected_dc_internal_resistance_milliohms": "22.6",
+            "baseline_voltage_volts": "3.61"
+        }
+    ]
+
+    equipment_by_source_identity = {
+        "Stage_1/TP_k01_01/TP_k01_01_01_ET_T23.csv": {
+            "evidence_status": "validated",
+            "equipment": {
+                "measurement_device": "device_a",
+                "test_channel": "ch_a",
+                "climate_chamber": "chamber_a",
+                "climate_chamber_position": "pos_a"
+            }
+        },
+        "Stage_1/TP_k02_01/TP_k02_01_01_ET_T23.csv": {
+            "evidence_status": "validated",
+            "equipment": {
+                "measurement_device": "device_b",
+                "test_channel": "ch_b",
+                "climate_chamber": "chamber_b",
+                "climate_chamber_position": "pos_b"
+            }
+        }
+    }
+
+    diagnostic_records = build_baseline_balance_diagnostics(
+        cell_records = cell_records,
+        reference_records = reference_records,
+        reference_measurement_equipment_by_source_identity = (
+            equipment_by_source_identity
+        )
+    )
+
+    et_pair = next(
+        record
+        for record in diagnostic_records
+        if (
+            record["record_type"] == "condition_pair_difference"
+            and record["baseline_field"] == "mean_capacity_ah"
+            and record["analysis_population"] == "assigned"
+        )
+    )
+
+    assert et_pair["measurement_equipment_field"] == (
+        "reference_measurement_equipment"
+    )
+    assert et_pair["measurement_equipment_relationship"] == "disjoint"
+    assert et_pair["first_validated_equipment_cell_count"] == 1
+    assert et_pair["first_unavailable_equipment_cell_count"] == 0
+    assert et_pair["second_validated_equipment_cell_count"] == 1
+    assert et_pair["first_identity_conflicted_equipment_cell_count"] == 0
+    assert et_pair["second_identity_conflicted_equipment_cell_count"] == 0
+
+
+# Confirming identity-conflicted initial-reference equipment is flagged
+def test_baseline_balance_flags_identity_conflicted_initial_reference() -> None:
+    cell_records = [
+        {
+            "cell_identity": "Stage_1/TP_k01_01",
+            "condition_protocol_identity": (
+                "Stage_1/TP_k01/periodic_reference_tests"
+            ),
+            "dataset_stage": "Stage_1",
+            "aging_type": "k",
+            "aging_mode": "calendar_aging",
+            "test_point_number": "1",
+            "laboratory": "SIE",
+            "sampling_method": "FF"
+        },
+        {
+            "cell_identity": "Stage_1/TP_k02_01",
+            "condition_protocol_identity": (
+                "Stage_1/TP_k02/periodic_reference_tests"
+            ),
+            "dataset_stage": "Stage_1",
+            "aging_type": "k",
+            "aging_mode": "calendar_aging",
+            "test_point_number": "2",
+            "laboratory": "SIE",
+            "sampling_method": "FF"
+        }
+    ]
+
+    reference_records = [
+        {
+            "cell_identity": "Stage_1/TP_k01_01",
+            "source_identity": (
+                "Stage_1/TP_k01_01/"
+                "TP_k01_01_01_ET_T23.csv"
+            ),
+            "sequence_number": "1",
+            "mean_capacity_ah": "4.90",
+            "uncorrected_dc_internal_resistance_milliohms": "22.5",
+            "baseline_voltage_volts": "3.60"
+        },
+        {
+            "cell_identity": "Stage_1/TP_k02_01",
+            "source_identity": (
+                "Stage_1/TP_k02_01/"
+                "TP_k02_01_01_ET_T23.csv"
+            ),
+            "sequence_number": "1",
+            "mean_capacity_ah": "4.95",
+            "uncorrected_dc_internal_resistance_milliohms": "22.6",
+            "baseline_voltage_volts": "3.61"
+        }
+    ]
+
+    equipment_by_source_identity = {
+        "Stage_1/TP_k01_01/TP_k01_01_01_ET_T23.csv": {
+            "evidence_status": "identity_conflicted",
+            "equipment": {
+                "measurement_device": "device_a",
+                "test_channel": "ch_a",
+                "climate_chamber": "chamber_a",
+                "climate_chamber_position": "pos_a"
+            }
+        },
+        "Stage_1/TP_k02_01/TP_k02_01_01_ET_T23.csv": {
+            "evidence_status": "validated",
+            "equipment": {
+                "measurement_device": "device_b",
+                "test_channel": "ch_b",
+                "climate_chamber": "chamber_b",
+                "climate_chamber_position": "pos_b"
+            }
+        }
+    }
+
+    diagnostic_records = build_baseline_balance_diagnostics(
+        cell_records = cell_records,
+        reference_records = reference_records,
+        reference_measurement_equipment_by_source_identity = (
+            equipment_by_source_identity
+        )
+    )
+
+    et_pair = next(
+        record
+        for record in diagnostic_records
+        if (
+            record["record_type"] == "condition_pair_difference"
+            and record["baseline_field"] == "mean_capacity_ah"
+            and record["analysis_population"] == "assigned"
+        )
+    )
+
+    assert et_pair["measurement_equipment_relationship"] == (
+        "identity_conflicted"
+    )
+    assert et_pair["first_identity_conflicted_equipment_cell_count"] == 1
+    assert et_pair["first_validated_equipment_cell_count"] == 0
 
 
 # Rejecting coverage fractions outside the open-closed unit interval
@@ -2076,10 +2335,6 @@ def test_calculate_standardized_mean_difference_undefined_variance() -> None:
     [0.0, -0.5, 1.5, 2.0]
 )
 def test_load_analysis_policy_rejects_invalid_coverage_fraction(tmp_path: Path, invalid_coverage_fraction: float) -> None:
-    from scripts.audit_experimental_design import (
-        load_analysis_policy
-    )
-
     policy = build_valid_policy_payload()
 
     policy["coverage_rules"]["primary"][
@@ -2119,10 +2374,6 @@ def test_load_analysis_policy_rejects_invalid_coverage_fraction(tmp_path: Path, 
     ]
 )
 def test_load_analysis_policy_rejects_missing_required_fields(tmp_path: Path, missing_field: str) -> None:
-    from scripts.audit_experimental_design import (
-        load_analysis_policy
-    )
-
     policy = build_valid_policy_payload()
 
     del policy[missing_field]
@@ -2165,10 +2416,6 @@ def test_load_analysis_policy_rejects_missing_required_fields(tmp_path: Path, mi
 def test_load_analysis_policy_rejects_unknown_enumerations(tmp_path: Path, invalid_field: str,
                                                            invalid_value: str, expected_error: str
 ) -> None:
-    from scripts.audit_experimental_design import (
-        load_analysis_policy
-    )
-
     policy = build_valid_policy_payload()
 
     policy["support_mode"] = (
@@ -2250,10 +2497,6 @@ def test_coverage_rules_distinguish_primary_and_sensitivity() -> None:
 
 # Confirming that removing one supporting cell changes rank
 def test_horizon_specific_rank_changes_when_supporting_cell_removed() -> None:
-    from scripts.audit_experimental_design import (
-        build_horizon_specific_cell_design
-    )
-
     cell_records = [
         {
             "cell_identity": f"Stage_1/TP_k01_0{cell_number}",
@@ -2354,10 +2597,6 @@ def test_multivariable_support_is_decoupled_from_direct_contrasts() -> None:
         "replicated_joint_condition_analytical_contrast_with_restrictions"
     )
 
-    from scripts.audit_experimental_design import (
-        build_analytical_scope_table
-    )
-
     scope_records = build_analytical_scope_table(
         identifiability_records = [
             {
@@ -2409,10 +2648,6 @@ def test_multivariable_support_is_decoupled_from_direct_contrasts() -> None:
 
 # Confirming every observed sampling regime enters design scopes
 def test_build_design_scopes_covers_all_sampling_regimes() -> None:
-    from scripts.audit_experimental_design import (
-        build_design_scopes
-    )
-
     records = [
         {
             "dataset_stage": "Stage_1",
@@ -2443,12 +2678,39 @@ def test_build_design_scopes_covers_all_sampling_regimes() -> None:
     assert "Stage_2/sampling_method=cLH" in scopes
 
 
+# Confirming single-method stages do not duplicate their stage scope
+def test_build_design_scopes_skips_single_method_stages() -> None:
+    records = [
+        {
+            "dataset_stage": "Stage_1",
+            "sampling_method": "FF"
+        },
+        {
+            "dataset_stage": "Stage_1",
+            "sampling_method": "FF"
+        },
+        {
+            "dataset_stage": "Stage_2",
+            "sampling_method": "pi"
+        },
+        {
+            "dataset_stage": "Stage_2",
+            "sampling_method": "cLH"
+        }
+    ]
+
+    scopes = build_design_scopes(records)
+
+    assert "Stage_1" in scopes
+    assert "Stage_1/sampling_method=FF" not in scopes
+
+    assert "Stage_2" in scopes
+    assert "Stage_2/sampling_method=pi" in scopes
+    assert "Stage_2/sampling_method=cLH" in scopes
+
+
 # Confirming the baseline inventory spans all 279 cells
 def test_build_baseline_balance_diagnostics_covers_all_cells() -> None:
-    from scripts.audit_experimental_design import (
-        build_baseline_balance_diagnostics
-    )
-
     cell_records = [
         {
             "cell_identity": f"Stage_1/TP_k01_{cell_number:02d}",
@@ -2668,10 +2930,6 @@ def test_calendar_estimands_use_whole_protocol_elapsed_time() -> None:
 
 # Confirming continuous-support mode permits an empty horizon list
 def test_continuous_support_policy_allows_empty_discrete_horizons(tmp_path: Path) -> None:
-    from scripts.audit_experimental_design import (
-        load_analysis_policy
-    )
-
     policy = build_valid_policy_payload()
 
     policy_path = (
@@ -2696,10 +2954,6 @@ def test_continuous_support_policy_allows_empty_discrete_horizons(tmp_path: Path
 
 # Confirming continuous-interval coverage uses the assigned-cell denominator
 def test_calculate_supported_intervals_uses_assigned_cell_denominator() -> None:
-    from scripts.audit_experimental_design import (
-        calculate_supported_intervals
-    )
-
     intervals = calculate_supported_intervals(
         horizon_values_by_cell = {
             "cell_1": [10.0, 100.0],
@@ -2726,10 +2980,6 @@ def test_calculate_supported_intervals_uses_assigned_cell_denominator() -> None:
 
 # Confirming the sensitivity rule preserves two-cell replication
 def test_sensitivity_interval_retains_two_cell_replication() -> None:
-    from scripts.audit_experimental_design import (
-        calculate_supported_intervals
-    )
-
     intervals = calculate_supported_intervals(
         horizon_values_by_cell = {
             "cell_1": [10.0, 100.0],
@@ -2758,10 +3008,6 @@ def test_sensitivity_interval_retains_two_cell_replication() -> None:
 
 # Confirming intersected support never extrapolates either input interval
 def test_supported_interval_intersection_never_extrapolates() -> None:
-    from scripts.audit_experimental_design import (
-        intersect_supported_intervals
-    )
-
     intersections = intersect_supported_intervals(
         first_intervals = [
             {
@@ -2790,10 +3036,6 @@ def test_supported_interval_intersection_never_extrapolates() -> None:
 
 # Confirming pooled-stage scope cannot receive analytical authorization
 def test_pooled_stage_scope_is_not_authorized() -> None:
-    from scripts.audit_experimental_design import (
-        build_analytical_scope_table
-    )
-
     records = build_analytical_scope_table(
         identifiability_records = [
             {
@@ -3009,10 +3251,6 @@ def test_only_bracketing_range_population_can_authorize_scope() -> None:
 
 # Preventing cache reuse across populations with different observation counts
 def test_interval_identifiability_cache_preserves_observation_counts() -> None:
-    from scripts.audit_experimental_design import (
-        build_continuous_support_identifiability
-    )
-
     cell_records = [
         {
             "cell_identity": f"Stage_1/TP_k0{condition}_0{cell}",
@@ -3222,10 +3460,6 @@ def test_scope_omits_context_family_without_context_term() -> None:
 
 # Confirming baseline balance keeps assigned and eligible populations separate
 def test_baseline_balance_separates_eligibility_populations() -> None:
-    from scripts.audit_experimental_design import (
-        build_baseline_balance_diagnostics
-    )
-
     cell_records = [
         {
             "cell_identity": f"Stage_1/TP_k01_0{cell_number}",
@@ -3406,10 +3640,6 @@ def test_supported_sensitivity_contrast_is_sensitivity_only() -> None:
 
 # Confirming cross-scope baseline pairs are retained but prohibited
 def test_baseline_pairs_crossing_scope_are_marked_descriptive_only() -> None:
-    from scripts.audit_experimental_design import (
-        build_baseline_balance_diagnostics
-    )
-
     cell_records = [
         {
             "cell_identity": "Stage_1/TP_k01_01",
@@ -3495,10 +3725,6 @@ def test_baseline_pairs_crossing_scope_are_marked_descriptive_only() -> None:
 
 # Confirming bracketing regions do not claim continuous observation
 def test_bracketing_regions_declare_no_continuous_observation() -> None:
-    from scripts.audit_experimental_design import (
-        build_continuous_support_regions
-    )
-
     cell_records = [
         {
             "cell_identity": "cell_1",
@@ -3559,10 +3785,6 @@ def test_bracketing_regions_declare_no_continuous_observation() -> None:
 
 # Confirming equipment context never receives a permitted authorization
 def test_equipment_context_is_not_authorized_for_adjustment() -> None:
-    from scripts.audit_experimental_design import (
-        build_analytical_scope_table
-    )
-
     common = {
         "record_type": "term",
         "analysis_population": "bracketing_range_cell_design",
@@ -3618,10 +3840,6 @@ def test_equipment_context_is_not_authorized_for_adjustment() -> None:
 
 # Confirming diagnostics are carried and inferential claim is not authorized
 def test_structural_estimability_is_diagnostic_not_inferential() -> None:
-    from scripts.audit_experimental_design import (
-        build_analytical_scope_table
-    )
-
     record = {
         "record_type": "term",
         "analysis_population": "bracketing_range_cell_design",
@@ -3676,10 +3894,6 @@ def test_structural_estimability_is_diagnostic_not_inferential() -> None:
 
 # Confirming the production analysis policy loads with the required sections
 def test_production_analysis_policy_loads() -> None:
-    from scripts.audit_experimental_design import (
-        load_analysis_policy
-    )
-
     policy_path = (
         Path(__file__).resolve().parents[1]
         / "configs"
@@ -3690,6 +3904,7 @@ def test_production_analysis_policy_loads() -> None:
         policy_path = policy_path
     )
 
+    assert policy["policy_version"] == "1.5"
     assert "longitudinal_observation_policy" in policy
     assert "treatment_evaluation_policy" in policy
 
@@ -3717,10 +3932,6 @@ def test_production_analysis_policy_loads() -> None:
 
 # Rejecting a policy that omits the longitudinal observation policy
 def test_load_analysis_policy_rejects_missing_longitudinal_policy(tmp_path: Path) -> None:
-    from scripts.audit_experimental_design import (
-        load_analysis_policy
-    )
-
     policy = build_valid_policy_payload()
 
     del policy["longitudinal_observation_policy"]
@@ -3746,10 +3957,6 @@ def test_load_analysis_policy_rejects_missing_longitudinal_policy(tmp_path: Path
 
 # Rejecting an unsupported longitudinal-policy value
 def test_load_analysis_policy_rejects_invalid_longitudinal_value(tmp_path: Path) -> None:
-    from scripts.audit_experimental_design import (
-        load_analysis_policy
-    )
-
     policy = build_valid_policy_payload()
 
     policy["longitudinal_observation_policy"][
@@ -3777,10 +3984,6 @@ def test_load_analysis_policy_rejects_invalid_longitudinal_value(tmp_path: Path)
 
 # Rejecting an unsupported calendar-policy value
 def test_load_analysis_policy_rejects_invalid_calendar_value(tmp_path: Path) -> None:
-    from scripts.audit_experimental_design import (
-        load_analysis_policy
-    )
-
     policy = build_valid_policy_payload()
 
     policy["calendar_exposure_policy"][
@@ -3823,10 +4026,6 @@ def test_load_analysis_policy_rejects_invalid_calendar_value(tmp_path: Path) -> 
 def test_load_analysis_policy_rejects_invalid_rationale(tmp_path: Path, section_name: str,
                                                         nested_key: str | None, bad_rationale: object
 ) -> None:
-    from scripts.audit_experimental_design import (
-        load_analysis_policy
-    )
-
     policy = build_valid_policy_payload()
 
     if nested_key is None:
@@ -3854,10 +4053,6 @@ def test_load_analysis_policy_rejects_invalid_rationale(tmp_path: Path, section_
 
 # Rejecting sensitivity coverage stricter than primary coverage
 def test_load_analysis_policy_rejects_sensitivity_stricter_than_primary(tmp_path: Path) -> None:
-    from scripts.audit_experimental_design import (
-        load_analysis_policy
-    )
-
     policy = build_valid_policy_payload()
 
     policy["coverage_rules"]["primary"][
@@ -3889,10 +4084,6 @@ def test_load_analysis_policy_rejects_sensitivity_stricter_than_primary(tmp_path
 
 # Confirming overlapping but non-aligned cohort support regions are rejected
 def test_overlapping_misaligned_primary_and_sensitivity_geometry_raises() -> None:
-    from scripts.audit_experimental_design import (
-        validate_cohort_aligned_support_regions
-    )
-
     primary_region = {
         "region_kind": "interval",
         "lower_horizon": 10.0,
@@ -4150,10 +4341,6 @@ def test_cycle_elapsed_time_scope_is_not_labeled_as_fec() -> None:
 
 # Confirming the staging directory helper returns unique paths
 def test_create_staging_output_directory_is_unique(tmp_path: Path) -> None:
-    from scripts.audit_experimental_design import (
-        create_staging_output_directory
-    )
-
     output_directory = tmp_path / "design_output"
 
     first = create_staging_output_directory(output_directory)
@@ -4164,19 +4351,14 @@ def test_create_staging_output_directory_is_unique(tmp_path: Path) -> None:
         assert first.exists()
         assert second.exists()
     finally:
-        import shutil as _shutil
         if first.exists():
-            _shutil.rmtree(first)
+            shutil.rmtree(first)
         if second.exists():
-            _shutil.rmtree(second)
+            shutil.rmtree(second)
 
 
 # Confirming the returned report path is the final published path
 def test_write_and_publish_returns_final_report_path(tmp_path: Path) -> None:
-    from scripts.audit_experimental_design import (
-        write_and_publish_design_artifacts
-    )
-
     output_directory = tmp_path / "design_output"
 
     output_tables = {
@@ -4219,11 +4401,6 @@ def test_write_and_publish_returns_final_report_path(tmp_path: Path) -> None:
 
 # Confirming a mid-write failure leaves the previous output untouched
 def test_write_failure_preserves_previous_output(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from scripts.audit_experimental_design import (
-        write_and_publish_design_artifacts
-    )
-    import scripts.audit_experimental_design as module
-
     output_directory = tmp_path / "design_output"
     output_directory.mkdir()
     sentinel_path = output_directory / "sentinel.txt"
@@ -4375,10 +4552,6 @@ def test_validate_cohort_aligned_support_regions_accepts_joint_compaction() -> N
 
 # Confirming the whole-protocol calendar estimand is available with restrictions
 def test_calendar_estimand_is_available_as_whole_protocol_target() -> None:
-    from scripts.audit_experimental_design import (
-        load_analysis_policy
-    )
-
     policy_path = (
         Path(__file__).resolve().parents[1]
         / "configs"
@@ -4413,10 +4586,6 @@ def test_calendar_estimand_is_available_as_whole_protocol_target() -> None:
 
 # Confirming joint-condition contrasts do not authorize one-factor contrast structures
 def test_joint_condition_contrast_does_not_authorize_one_factor_effect() -> None:
-    from scripts.audit_experimental_design import (
-        build_question_disposition
-    )
-
     disposition = build_question_disposition(
         {
             "permitted_bracketing_ranges": [
@@ -4456,76 +4625,56 @@ def test_joint_condition_contrast_does_not_authorize_one_factor_effect() -> None
         disposition[
             "one_factor_contrast_structure_status"
         ]
+        == "not_present"
+    )
+
+    assert (
+        disposition[
+            "one_factor_condition_comparison_status"
+        ]
         == "not_supported"
     )
 
 
-# Confirming one-factor contrast structure requires no equipment restriction
-def test_one_factor_contrast_structure_requires_no_equipment_restriction() -> None:
-    from scripts.audit_experimental_design import (
-        build_question_disposition
-    )
-
-    disposition_with_alias = build_question_disposition(
-        {
-            "permitted_bracketing_ranges": [
-                {"minimum": 10.0, "maximum": 100.0}
-            ],
-            "first_eligible_cell_count": 3,
-            "second_eligible_cell_count": 3,
-            "direct_contrast_support_status": (
-                "supported_with_restrictions"
-            ),
-            "target_estimand_available": True,
-            "changed_treatments": [
-                "ambient_temperature_celsius"
-            ],
-            "equipment_disjoint_dimension_count": 1,
-            "equipment_identity_conflicted_dimension_count": 0
-        }
+# Confirming one-factor structure is separate from equipment restrictions
+def test_one_factor_structure_is_separate_from_equipment_restrictions() -> None:
+    disposition_with_equipment_restriction = (
+        build_question_disposition(
+            {
+                "permitted_bracketing_ranges": [
+                    {"minimum": 10.0, "maximum": 100.0}
+                ],
+                "first_eligible_cell_count": 3,
+                "second_eligible_cell_count": 3,
+                "direct_contrast_support_status": (
+                    "supported_with_restrictions"
+                ),
+                "target_estimand_available": True,
+                "changed_treatments": [
+                    "ambient_temperature_celsius"
+                ],
+                "equipment_disjoint_dimension_count": 1,
+                "equipment_identity_conflicted_dimension_count": 0
+            }
+        )
     )
 
     assert (
-        disposition_with_alias[
-            "joint_condition_comparison_status"
+        disposition_with_equipment_restriction[
+            "one_factor_contrast_structure_status"
+        ] == "present"
+    )
+
+    assert (
+        disposition_with_equipment_restriction[
+            "one_factor_condition_comparison_status"
         ] == "permitted_with_restrictions"
     )
 
     assert (
-        disposition_with_alias[
-            "one_factor_contrast_structure_status"
-        ] == "not_supported"
-    )
-
-    disposition_with_conflict = build_question_disposition(
-        {
-            "permitted_bracketing_ranges": [
-                {"minimum": 10.0, "maximum": 100.0}
-            ],
-            "first_eligible_cell_count": 3,
-            "second_eligible_cell_count": 3,
-            "direct_contrast_support_status": (
-                "supported_with_restrictions"
-            ),
-            "target_estimand_available": True,
-            "changed_treatments": [
-                "ambient_temperature_celsius"
-            ],
-            "equipment_disjoint_dimension_count": 0,
-            "equipment_identity_conflicted_dimension_count": 1
-        }
-    )
-
-    assert (
-        disposition_with_conflict[
-            "joint_condition_comparison_status"
-        ] == "permitted_with_restrictions"
-    )
-
-    assert (
-        disposition_with_conflict[
-            "one_factor_contrast_structure_status"
-        ] == "not_supported"
+        disposition_with_equipment_restriction[
+            "one_factor_contrast_identification_status"
+        ] == "not_established_assignment_mechanism_undocumented"
     )
 
     disposition_without_equipment_restriction = (
@@ -4551,23 +4700,52 @@ def test_one_factor_contrast_structure_requires_no_equipment_restriction() -> No
 
     assert (
         disposition_without_equipment_restriction[
-            "joint_condition_comparison_status"
-        ] == "permitted_with_restrictions"
+            "one_factor_contrast_structure_status"
+        ] == "present"
     )
 
     assert (
         disposition_without_equipment_restriction[
-            "one_factor_contrast_structure_status"
+            "one_factor_condition_comparison_status"
         ] == "permitted_with_restrictions"
+    )
+
+
+# Confirming multi-treatment contrasts are not marked as one-factor structure
+def test_multiple_changed_treatments_are_not_one_factor_structure() -> None:
+    disposition = build_question_disposition(
+        {
+            "permitted_bracketing_ranges": [
+                {"minimum": 10.0, "maximum": 100.0}
+            ],
+            "first_eligible_cell_count": 3,
+            "second_eligible_cell_count": 3,
+            "direct_contrast_support_status": (
+                "supported_with_restrictions"
+            ),
+            "target_estimand_available": True,
+            "changed_treatments": [
+                "ambient_temperature_celsius",
+                "maximum_state_of_charge_fraction"
+            ],
+            "equipment_disjoint_dimension_count": 0,
+            "equipment_identity_conflicted_dimension_count": 0
+        }
+    )
+
+    assert (
+        disposition["one_factor_contrast_structure_status"]
+        == "not_present"
+    )
+
+    assert (
+        disposition["one_factor_condition_comparison_status"]
+        == "not_supported"
     )
 
 
 # Confirming condition counts accept test-point protocol lists
 def test_condition_count_accepts_test_point_protocol_lists() -> None:
-    from scripts.audit_experimental_design import (
-        collect_condition_protocol_identities
-    )
-
     identities = collect_condition_protocol_identities(
         [
             {
@@ -4594,10 +4772,6 @@ def test_condition_count_accepts_test_point_protocol_lists() -> None:
 
 # Rejecting invalid condition-protocol plural fields
 def test_condition_count_rejects_invalid_plural_field() -> None:
-    from scripts.audit_experimental_design import (
-        collect_condition_protocol_identities
-    )
-
     with pytest.raises(
         RuntimeError,
         match = "invalid condition_protocol_identities"
@@ -4615,11 +4789,6 @@ def test_condition_count_rejects_invalid_plural_field() -> None:
 
 # Confirming direct supported-record selection and question counting
 def test_direct_supported_record_selection_and_question_count() -> None:
-    from scripts.audit_experimental_design import (
-        direct_supported_records,
-        direct_supported_question_count
-    )
-
     records = [
         {
             "aging_mode": "calendar_aging",
@@ -4685,11 +4854,6 @@ def test_direct_supported_record_selection_and_question_count() -> None:
 
 # Confirming that delivery-state characteristics enter pairwise baseline diagnostics
 def test_baseline_balance_includes_pre_treatment_cell_characteristics() -> None:
-    from scripts.audit_experimental_design import (
-        CELL_LEVEL_BASELINE_FIELDS,
-        build_baseline_balance_diagnostics
-    )
-
     assert "initial_cell_mass_grams" in CELL_LEVEL_BASELINE_FIELDS
     assert (
         "initial_1khz_resistance_source_value"
@@ -4781,10 +4945,6 @@ def test_baseline_balance_includes_pre_treatment_cell_characteristics() -> None:
 
 # Confirming the policy declares one-factor contrast structure and required semantics
 def test_analysis_policy_declares_one_factor_contrast_semantics() -> None:
-    from scripts.audit_experimental_design import (
-        load_analysis_policy
-    )
-
     policy_path = (
         Path(__file__).resolve().parents[1]
         / "configs"
@@ -4828,10 +4988,6 @@ def test_analysis_policy_declares_one_factor_contrast_semantics() -> None:
 
 # Confirming that disjoint delivery-state equipment is reported as such
 def test_baseline_balance_reports_disjoint_measurement_equipment() -> None:
-    from scripts.audit_experimental_design import (
-        build_baseline_balance_diagnostics
-    )
-
     cell_records = [
         {
             "cell_identity": "Stage_1/TP_k01_01",
@@ -4919,3 +5075,993 @@ def test_baseline_balance_reports_disjoint_measurement_equipment() -> None:
     assert resistance_pair[
         "second_measurement_equipment_values"
     ] == ["meter_b"]
+
+
+# Confirming the reference-measurement equipment inventory is source-keyed
+def test_build_reference_measurement_equipment_by_source_identity() -> None:
+    audit_result = {
+        "archives": [
+            {
+                "measurements": [
+                    {
+                        "source_identity": (
+                            "Stage_1/TP_k01_01/"
+                            "TP_k01_01_01_ET_T23.csv"
+                        ),
+                        "companion_metadata": {
+                            "measurement_device": "device_a",
+                            "test_channel": "ch_a",
+                            "climate_chamber": "chamber_a",
+                            "climate_chamber_position": "pos_a"
+                        },
+                        "quality_reasons": []
+                    },
+                    {
+                        "source_identity": (
+                            "Stage_1/TP_k01_01/"
+                            "TP_k01_01_02_CU.csv"
+                        ),
+                        "companion_metadata": {
+                            "measurement_device": "device_x",
+                            "test_channel": "ch_x",
+                            "climate_chamber": "chamber_x",
+                            "climate_chamber_position": "pos_x"
+                        },
+                        "quality_reasons": []
+                    }
+                ]
+            }
+        ]
+    }
+
+    inventory = (
+        build_reference_measurement_equipment_by_source_identity(
+            audit_result
+        )
+    )
+
+    assert inventory == {
+        "Stage_1/TP_k01_01/TP_k01_01_01_ET_T23.csv": {
+            "evidence_status": "validated",
+            "equipment": {
+                "measurement_device": "device_a",
+                "test_channel": "ch_a",
+                "climate_chamber": "chamber_a",
+                "climate_chamber_position": "pos_a"
+            }
+        },
+        "Stage_1/TP_k01_01/TP_k01_01_02_CU.csv": {
+            "evidence_status": "validated",
+            "equipment": {
+                "measurement_device": "device_x",
+                "test_channel": "ch_x",
+                "climate_chamber": "chamber_x",
+                "climate_chamber_position": "pos_x"
+            }
+        }
+    }
+
+
+# Confirming identity-conflicted equipment preserves its named values
+def test_reference_measurement_equipment_keeps_conflicted_values() -> None:
+    audit_result = {
+        "archives": [
+            {
+                "measurements": [
+                    {
+                        "source_identity": (
+                            "Stage_1/TP_k01_01/"
+                            "TP_k01_01_01_ET_T23.csv"
+                        ),
+                        "companion_metadata": {
+                            "measurement_device": "device_a",
+                            "test_channel": "ch_a",
+                            "climate_chamber": "chamber_a",
+                            "climate_chamber_position": "pos_a"
+                        },
+                        "quality_reasons": [
+                            {
+                                "reason_code": (
+                                    "COMPANION_METADATA_IDENTITY_MISMATCH"
+                                ),
+                                "disposition": "manual_review"
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
+    }
+
+    inventory = (
+        build_reference_measurement_equipment_by_source_identity(
+            audit_result
+        )
+    )
+
+    record = inventory[
+        "Stage_1/TP_k01_01/TP_k01_01_01_ET_T23.csv"
+    ]
+
+    assert record["evidence_status"] == "identity_conflicted"
+    assert record["equipment"]["measurement_device"] == "device_a"
+    assert record["equipment"]["test_channel"] == "ch_a"
+    assert record["equipment"]["climate_chamber"] == "chamber_a"
+    assert record["equipment"]["climate_chamber_position"] == "pos_a"
+
+
+# Confirming missing companion metadata is unavailable
+def test_reference_measurement_equipment_missing_companion_metadata() -> None:
+    audit_result = {
+        "archives": [
+            {
+                "measurements": [
+                    {
+                        "source_identity": (
+                            "Stage_1/TP_k01_01/"
+                            "TP_k01_01_01_ET_T23.csv"
+                        ),
+                        "companion_metadata": None,
+                        "quality_reasons": []
+                    }
+                ]
+            }
+        ]
+    }
+
+    inventory = (
+        build_reference_measurement_equipment_by_source_identity(
+            audit_result
+        )
+    )
+
+    record = inventory[
+        "Stage_1/TP_k01_01/TP_k01_01_01_ET_T23.csv"
+    ]
+
+    assert record["evidence_status"] == "unavailable"
+    assert record["equipment"]["measurement_device"] is None
+
+
+# Confirming incomplete companion metadata is incomplete
+def test_reference_measurement_equipment_incomplete_companion_metadata() -> None:
+    audit_result = {
+        "archives": [
+            {
+                "measurements": [
+                    {
+                        "source_identity": (
+                            "Stage_1/TP_k01_01/"
+                            "TP_k01_01_01_ET_T23.csv"
+                        ),
+                        "companion_metadata": {
+                            "measurement_device": "device_a",
+                            "test_channel": "ch_a",
+                            "climate_chamber": "chamber_a",
+                            "climate_chamber_position": ""
+                        },
+                        "quality_reasons": []
+                    }
+                ]
+            }
+        ]
+    }
+
+    inventory = (
+        build_reference_measurement_equipment_by_source_identity(
+            audit_result
+        )
+    )
+
+    record = inventory[
+        "Stage_1/TP_k01_01/TP_k01_01_01_ET_T23.csv"
+    ]
+
+    assert record["evidence_status"] == "incomplete"
+
+
+# Confirming duplicate source identities are rejected
+def test_build_reference_measurement_equipment_rejects_duplicate_identity() -> None:
+    audit_result = {
+        "archives": [
+            {
+                "measurements": [
+                    {
+                        "source_identity": "Stage_1/TP_k01_01/dup.csv",
+                        "companion_metadata": None,
+                        "quality_reasons": []
+                    },
+                    {
+                        "source_identity": "Stage_1/TP_k01_01/dup.csv",
+                        "companion_metadata": None,
+                        "quality_reasons": []
+                    }
+                ]
+            }
+        ]
+    }
+
+    with pytest.raises(
+        RuntimeError,
+        match = "duplicate equipment source identity"
+    ):
+        build_reference_measurement_equipment_by_source_identity(
+            audit_result
+        )
+
+
+# Confirming partial evidence preserves unavailable cell counts
+def test_reference_measurement_equipment_summary_preserves_partial_evidence() -> None:
+    records = [
+        {
+            "reference_measurement_equipment": {
+                "evidence_status": "validated",
+                "equipment": {
+                    "measurement_device": "device_a",
+                    "test_channel": "ch_a",
+                    "climate_chamber": "chamber_a",
+                    "climate_chamber_position": "pos_a"
+                }
+            }
+        },
+        {
+            "reference_measurement_equipment": {
+                "evidence_status": "validated",
+                "equipment": {
+                    "measurement_device": "device_a",
+                    "test_channel": "ch_a",
+                    "climate_chamber": "chamber_a",
+                    "climate_chamber_position": "pos_a"
+                }
+            }
+        },
+        {
+            "reference_measurement_equipment": {
+                "evidence_status": "unavailable",
+                "equipment": {
+                    "measurement_device": None,
+                    "test_channel": None,
+                    "climate_chamber": None,
+                    "climate_chamber_position": None
+                }
+            }
+        }
+    ]
+
+    summary = (
+        build_reference_measurement_equipment_summary(
+            records
+        )
+    )
+
+    assert summary["validated_cell_count"] == 2
+    assert summary["unavailable_cell_count"] == 1
+    assert summary["identity_conflicted_cell_count"] == 0
+    assert summary["incomplete_cell_count"] == 0
+
+
+# Confirming partially evidenced groups are classified as such
+def test_classify_reference_measurement_equipment_partially_evidenced() -> None:
+    first_summary = {
+        "validated_signatures": ["sig_a"],
+        "validated_cell_count": 2,
+        "unavailable_cell_count": 1,
+        "identity_conflicted_cell_count": 0,
+        "incomplete_cell_count": 0
+    }
+
+    second_summary = {
+        "validated_signatures": ["sig_b"],
+        "validated_cell_count": 3,
+        "unavailable_cell_count": 0,
+        "identity_conflicted_cell_count": 0,
+        "incomplete_cell_count": 0
+    }
+
+    assert (
+        classify_reference_measurement_equipment_relationship(
+            first_summary = first_summary,
+            second_summary = second_summary
+        )
+        == "partially_evidenced"
+    )
+
+
+# Confirming identity-conflicted groups dominate the relationship classification
+def test_classify_reference_measurement_equipment_identity_conflicted() -> None:
+    first_summary = {
+        "validated_signatures": ["sig_a"],
+        "validated_cell_count": 2,
+        "unavailable_cell_count": 0,
+        "identity_conflicted_cell_count": 1,
+        "incomplete_cell_count": 0
+    }
+
+    second_summary = {
+        "validated_signatures": ["sig_b"],
+        "validated_cell_count": 3,
+        "unavailable_cell_count": 0,
+        "identity_conflicted_cell_count": 0,
+        "incomplete_cell_count": 0
+    }
+
+    assert (
+        classify_reference_measurement_equipment_relationship(
+            first_summary = first_summary,
+            second_summary = second_summary
+        )
+        == "identity_conflicted"
+    )
+
+
+# Confirming validated cells are counted separately from unique signatures
+def test_reference_measurement_equipment_summary_counts_cells_not_signatures() -> None:
+    shared_equipment = {
+        "measurement_device": "device_a",
+        "test_channel": "ch_a",
+        "climate_chamber": "chamber_a",
+        "climate_chamber_position": "pos_a"
+    }
+
+    records = [
+        {
+            "reference_measurement_equipment": {
+                "evidence_status": "validated",
+                "equipment": dict(shared_equipment)
+            }
+        },
+        {
+            "reference_measurement_equipment": {
+                "evidence_status": "validated",
+                "equipment": dict(shared_equipment)
+            }
+        },
+        {
+            "reference_measurement_equipment": {
+                "evidence_status": "validated",
+                "equipment": {
+                    "measurement_device": "device_b",
+                    "test_channel": "ch_b",
+                    "climate_chamber": "chamber_b",
+                    "climate_chamber_position": "pos_b"
+                }
+            }
+        }
+    ]
+
+    summary = (
+        build_reference_measurement_equipment_summary(
+            records
+        )
+    )
+
+    assert summary["validated_cell_count"] == 3
+    assert len(
+        summary["validated_signatures"]
+    ) == 2
+
+
+# Rejecting unknown equipment evidence statuses
+def test_reference_measurement_equipment_summary_rejects_unknown_status() -> None:
+    records = [
+        {
+            "reference_measurement_equipment": {
+                "evidence_status": "ambiguous",
+                "equipment": {
+                    "measurement_device": "device_a",
+                    "test_channel": "ch_a",
+                    "climate_chamber": "chamber_a",
+                    "climate_chamber_position": "pos_a"
+                }
+            }
+        }
+    ]
+
+    with pytest.raises(
+        RuntimeError,
+        match = "unknown evidence status"
+    ):
+        build_reference_measurement_equipment_summary(
+            records
+        )
+
+
+# Confirming ET-derived baseline group counts reconcile to eligible population
+def test_baseline_balance_reconciles_et_equipment_cell_counts() -> None:
+    cell_records = [
+        {
+            "cell_identity": f"Stage_1/TP_k01_0{cell_number}",
+            "condition_protocol_identity": (
+                "Stage_1/TP_k01/periodic_reference_tests"
+            ),
+            "dataset_stage": "Stage_1",
+            "aging_type": "k",
+            "aging_mode": "calendar_aging",
+            "test_point_number": "1",
+            "laboratory": "SIE",
+            "sampling_method": "FF"
+        }
+        for cell_number in range(1, 4)
+    ]
+
+    reference_records = [
+        {
+            "cell_identity": f"Stage_1/TP_k01_0{cell_number}",
+            "source_identity": (
+                f"Stage_1/TP_k01_0{cell_number}/"
+                f"TP_k01_0{cell_number}_01_ET_T23.csv"
+            ),
+            "sequence_number": "1",
+            "mean_capacity_ah": "4.9",
+            "uncorrected_dc_internal_resistance_milliohms": "22.5",
+            "baseline_voltage_volts": "3.6"
+        }
+        for cell_number in range(1, 4)
+    ]
+
+    equipment_by_source_identity = {
+        f"Stage_1/TP_k01_0{cell_number}/TP_k01_0{cell_number}_01_ET_T23.csv": {
+            "evidence_status": "validated",
+            "equipment": {
+                "measurement_device": "shared_device",
+                "test_channel": "ch_a",
+                "climate_chamber": "chamber_a",
+                "climate_chamber_position": "pos_a"
+            }
+        }
+        for cell_number in range(1, 4)
+    }
+
+    diagnostic_records = build_baseline_balance_diagnostics(
+        cell_records = cell_records,
+        reference_records = reference_records,
+        reference_measurement_equipment_by_source_identity = (
+            equipment_by_source_identity
+        )
+    )
+
+    et_group_summaries = [
+        record
+        for record in diagnostic_records
+        if (
+            record["record_type"] == "baseline_group_summary"
+            and record["baseline_field"] in {
+                "mean_capacity_ah",
+                "uncorrected_dc_internal_resistance_milliohms",
+                "baseline_voltage_volts"
+            }
+        )
+    ]
+
+    assert et_group_summaries
+
+    for summary in et_group_summaries:
+        classified_count = (
+            int(summary["group_validated_equipment_cell_count"])
+            + int(summary["group_unavailable_equipment_cell_count"])
+            + int(summary["group_identity_conflicted_equipment_cell_count"])
+            + int(summary["group_incomplete_equipment_cell_count"])
+        )
+
+        assert classified_count == int(
+            summary["available_cell_count"]
+        )
+
+
+# Confirming equipment summaries reflect only cells with an observed value
+def test_baseline_balance_equipment_matches_observed_value_sample() -> None:
+    cell_records = [
+        {
+            "cell_identity": f"Stage_1/TP_k01_0{cell_number}",
+            "condition_protocol_identity": (
+                "Stage_1/TP_k01/periodic_reference_tests"
+            ),
+            "dataset_stage": "Stage_1",
+            "aging_type": "k",
+            "aging_mode": "calendar_aging",
+            "test_point_number": "1",
+            "laboratory": "SIE",
+            "sampling_method": "FF"
+        }
+        for cell_number in range(1, 4)
+    ]
+
+    reference_records = [
+        {
+            "cell_identity": "Stage_1/TP_k01_01",
+            "source_identity": (
+                "Stage_1/TP_k01_01/"
+                "TP_k01_01_01_ET_T23.csv"
+            ),
+            "sequence_number": "1",
+            "mean_capacity_ah": "4.90",
+            "uncorrected_dc_internal_resistance_milliohms": "22.5",
+            "baseline_voltage_volts": "3.60"
+        },
+        {
+            "cell_identity": "Stage_1/TP_k01_02",
+            "source_identity": (
+                "Stage_1/TP_k01_02/"
+                "TP_k01_02_01_ET_T23.csv"
+            ),
+            "sequence_number": "1",
+            "mean_capacity_ah": "",
+            "uncorrected_dc_internal_resistance_milliohms": "22.6",
+            "baseline_voltage_volts": "3.61"
+        },
+        {
+            "cell_identity": "Stage_1/TP_k01_03",
+            "source_identity": (
+                "Stage_1/TP_k01_03/"
+                "TP_k01_03_01_ET_T23.csv"
+            ),
+            "sequence_number": "1",
+            "mean_capacity_ah": "5.00",
+            "uncorrected_dc_internal_resistance_milliohms": "23.0",
+            "baseline_voltage_volts": "3.62"
+        }
+    ]
+
+    equipment_by_source_identity = {
+        f"Stage_1/TP_k01_0{cell_number}/TP_k01_0{cell_number}_01_ET_T23.csv": {
+            "evidence_status": "validated",
+            "equipment": {
+                "measurement_device": f"device_{cell_number}",
+                "test_channel": f"ch_{cell_number}",
+                "climate_chamber": f"chamber_{cell_number}",
+                "climate_chamber_position": f"pos_{cell_number}"
+            }
+        }
+        for cell_number in range(1, 4)
+    }
+
+    diagnostic_records = build_baseline_balance_diagnostics(
+        cell_records = cell_records,
+        reference_records = reference_records,
+        reference_measurement_equipment_by_source_identity = (
+            equipment_by_source_identity
+        )
+    )
+
+    capacity_summary = next(
+        record
+        for record in diagnostic_records
+        if (
+            record["record_type"] == "baseline_group_summary"
+            and record["baseline_field"] == "mean_capacity_ah"
+            and record["grouping_name"] == "stage"
+            and record["analysis_population"] == "assigned"
+        )
+    )
+
+    assert capacity_summary["available_cell_count"] == 2
+    assert capacity_summary["population_eligible_cell_count"] == 3
+    assert (
+        capacity_summary["group_validated_equipment_cell_count"] == 2
+    )
+
+
+# Confirming identity-conflicted cycle exposure overrides available evidence
+def test_classify_exposure_context_identity_conflicted() -> None:
+    first_support = {
+        "cycle_aging_exposure_measurement_devices": ["device_a"],
+        "cycle_aging_exposure_test_channels": ["ch_a"],
+        "cycle_aging_exposure_climate_chambers": ["chamber_a"],
+        "cycle_aging_exposure_climate_chamber_positions": ["pos_a"],
+        "cycle_aging_exposure_identity_conflicted_measurement_devices": [
+            "device_conflict"
+        ],
+        "cycle_aging_exposure_identity_conflicted_test_channels": [],
+        "cycle_aging_exposure_identity_conflicted_climate_chambers": [],
+        "cycle_aging_exposure_identity_conflicted_climate_chamber_positions": []
+    }
+
+    second_support = {
+        "cycle_aging_exposure_measurement_devices": ["device_a"],
+        "cycle_aging_exposure_test_channels": ["ch_a"],
+        "cycle_aging_exposure_climate_chambers": ["chamber_a"],
+        "cycle_aging_exposure_climate_chamber_positions": ["pos_a"],
+        "cycle_aging_exposure_identity_conflicted_measurement_devices": [],
+        "cycle_aging_exposure_identity_conflicted_test_channels": [],
+        "cycle_aging_exposure_identity_conflicted_climate_chambers": [],
+        "cycle_aging_exposure_identity_conflicted_climate_chamber_positions": []
+    }
+
+    assert (
+        classify_exposure_context(
+            aging_mode="cycle_aging",
+            first_support=first_support,
+            second_support=second_support
+        )
+        == "identity_conflicted"
+    )
+
+
+# Confirming missing cycle exposure equipment yields unavailable
+def test_classify_exposure_context_unavailable() -> None:
+    empty_support = {
+        "cycle_aging_exposure_measurement_devices": [],
+        "cycle_aging_exposure_test_channels": [],
+        "cycle_aging_exposure_climate_chambers": [],
+        "cycle_aging_exposure_climate_chamber_positions": [],
+        "cycle_aging_exposure_identity_conflicted_measurement_devices": [],
+        "cycle_aging_exposure_identity_conflicted_test_channels": [],
+        "cycle_aging_exposure_identity_conflicted_climate_chambers": [],
+        "cycle_aging_exposure_identity_conflicted_climate_chamber_positions": []
+    }
+
+    assert (
+        classify_exposure_context(
+            aging_mode="cycle_aging",
+            first_support=empty_support,
+            second_support=empty_support
+        )
+        == "unavailable"
+    )
+
+
+# Confirming partial cycle exposure equipment yields incomplete
+def test_classify_exposure_context_incomplete() -> None:
+    first_support = {
+        "cycle_aging_exposure_measurement_devices": ["device_a"],
+        "cycle_aging_exposure_test_channels": [],
+        "cycle_aging_exposure_climate_chambers": [],
+        "cycle_aging_exposure_climate_chamber_positions": [],
+        "cycle_aging_exposure_identity_conflicted_measurement_devices": [],
+        "cycle_aging_exposure_identity_conflicted_test_channels": [],
+        "cycle_aging_exposure_identity_conflicted_climate_chambers": [],
+        "cycle_aging_exposure_identity_conflicted_climate_chamber_positions": []
+    }
+
+    second_support = {
+        "cycle_aging_exposure_measurement_devices": [],
+        "cycle_aging_exposure_test_channels": ["ch_a"],
+        "cycle_aging_exposure_climate_chambers": [],
+        "cycle_aging_exposure_climate_chamber_positions": [],
+        "cycle_aging_exposure_identity_conflicted_measurement_devices": [],
+        "cycle_aging_exposure_identity_conflicted_test_channels": [],
+        "cycle_aging_exposure_identity_conflicted_climate_chambers": [],
+        "cycle_aging_exposure_identity_conflicted_climate_chamber_positions": []
+    }
+
+    assert (
+        classify_exposure_context(
+            aging_mode="cycle_aging",
+            first_support=first_support,
+            second_support=second_support
+        )
+        == "incomplete"
+    )
+
+
+# Confirming full cycle exposure equipment yields available
+def test_classify_exposure_context_available() -> None:
+    full_support = {
+        "cycle_aging_exposure_measurement_devices": ["device_a"],
+        "cycle_aging_exposure_test_channels": ["ch_a"],
+        "cycle_aging_exposure_climate_chambers": ["chamber_a"],
+        "cycle_aging_exposure_climate_chamber_positions": ["pos_a"],
+        "cycle_aging_exposure_identity_conflicted_measurement_devices": [],
+        "cycle_aging_exposure_identity_conflicted_test_channels": [],
+        "cycle_aging_exposure_identity_conflicted_climate_chambers": [],
+        "cycle_aging_exposure_identity_conflicted_climate_chamber_positions": []
+    }
+
+    assert (
+        classify_exposure_context(
+            aging_mode="cycle_aging",
+            first_support=full_support,
+            second_support=full_support
+        )
+        == "available"
+    )
+
+
+# Confirming calendar aging exposure context is unavailable from measurement files
+def test_classify_exposure_context_calendar_aging() -> None:
+    assert (
+        classify_exposure_context(
+            aging_mode="calendar_aging",
+            first_support={},
+            second_support={}
+        )
+        == "unavailable_from_measurement_files"
+    )
+
+
+# Confirming relationship-specific restriction codes
+def test_compare_equipment_allocation_emits_relationship_specific_codes() -> None:
+    first_support = {
+        "reference_measurement_measurement_devices": ["device_a"],
+        "reference_measurement_identity_conflicted_measurement_devices": []
+    }
+
+    second_support_unavailable = {
+        "reference_measurement_measurement_devices": [],
+        "reference_measurement_identity_conflicted_measurement_devices": []
+    }
+
+    records = compare_equipment_allocation(
+        first_support=first_support,
+        second_support=second_support_unavailable,
+        equipment_fields=[
+            (
+                "reference_measurement_measurement_devices",
+                "REFERENCE_MEASUREMENT_DEVICE_ALLOCATION"
+            )
+        ]
+    )
+
+    assert records[0]["relationship"] == "unavailable"
+    assert records[0]["restriction_code"] == (
+        "REFERENCE_MEASUREMENT_DEVICE_ALLOCATION_UNAVAILABLE"
+    )
+
+    second_support_disjoint = {
+        "reference_measurement_measurement_devices": ["device_b"],
+        "reference_measurement_identity_conflicted_measurement_devices": []
+    }
+
+    records = compare_equipment_allocation(
+        first_support=first_support,
+        second_support=second_support_disjoint,
+        equipment_fields=[
+            (
+                "reference_measurement_measurement_devices",
+                "REFERENCE_MEASUREMENT_DEVICE_ALLOCATION"
+            )
+        ]
+    )
+
+    assert records[0]["restriction_code"] == (
+        "REFERENCE_MEASUREMENT_DEVICE_ALLOCATION_DISJOINT"
+    )
+
+    second_support_conflicted = {
+        "reference_measurement_measurement_devices": ["device_b"],
+        "reference_measurement_identity_conflicted_measurement_devices": [
+            "device_conflict"
+        ]
+    }
+
+    records = compare_equipment_allocation(
+        first_support=first_support,
+        second_support=second_support_conflicted,
+        equipment_fields=[
+            (
+                "reference_measurement_measurement_devices",
+                "REFERENCE_MEASUREMENT_DEVICE_ALLOCATION"
+            )
+        ]
+    )
+
+    assert records[0]["relationship"] == "identity_conflicted"
+    assert records[0]["restriction_code"] == (
+        "REFERENCE_MEASUREMENT_DEVICE_ALLOCATION_IDENTITY_CONFLICTED"
+    )
+
+
+# Confirming malformed CSV rows with extra fields are rejected
+def test_load_validated_table_rejects_extra_csv_fields(tmp_path: Path) -> None:
+    table_path = tmp_path / "table.csv"
+    table_path.write_text(
+        "col_a,col_b\nvalue_a,value_b,extra\n",
+        encoding = "utf-8"
+    )
+
+    table_manifest = {
+        "file_name": "table.csv",
+        "row_count": 1,
+        "schema": [
+            {"name": "col_a", "data_type": "string", "nullable": False, "unit": None},
+            {"name": "col_b", "data_type": "string", "nullable": False, "unit": None}
+        ],
+        "sha256": calculate_sha256(table_path)
+    }
+
+    with pytest.raises(
+        RuntimeError,
+        match = "extra CSV fields"
+    ):
+        load_validated_table(
+            manifest_path=tmp_path / "manifest.json",
+            table_name="demo",
+            table_manifest=table_manifest
+        )
+
+
+# Confirming malformed CSV rows with missing fields are rejected
+def test_load_validated_table_rejects_missing_csv_fields(tmp_path: Path) -> None:
+    table_path = tmp_path / "table.csv"
+    table_path.write_text(
+        "col_a,col_b\nvalue_a\n",
+        encoding = "utf-8"
+    )
+
+    table_manifest = {
+        "file_name": "table.csv",
+        "row_count": 1,
+        "schema": [
+            {"name": "col_a", "data_type": "string", "nullable": False, "unit": None},
+            {"name": "col_b", "data_type": "string", "nullable": False, "unit": None}
+        ],
+        "sha256": calculate_sha256(table_path)
+    }
+
+    with pytest.raises(
+        RuntimeError,
+        match = "missing CSV fields"
+    ):
+        load_validated_table(
+            manifest_path=tmp_path / "manifest.json",
+            table_name="demo",
+            table_manifest=table_manifest
+        )
+
+
+# Confirming manifest file names cannot escape the manifest directory
+def test_load_validated_table_rejects_path_traversal(tmp_path: Path) -> None:
+    table_manifest = {
+        "file_name": "../escape.csv",
+        "row_count": 0,
+        "schema": [
+            {"name": "col_a", "data_type": "string", "nullable": False, "unit": None}
+        ],
+        "sha256": "0" * 64
+    }
+
+    with pytest.raises(
+        RuntimeError,
+        match = "manifest directory"
+    ):
+        load_validated_table(
+            manifest_path=tmp_path / "manifest.json",
+            table_name="demo",
+            table_manifest=table_manifest
+        )
+
+
+# Confirming policy parsing raises a documented RuntimeError for malformed rules
+def test_load_analysis_policy_rejects_non_mapping_coverage_rules(tmp_path: Path) -> None:
+    policy = build_valid_policy_payload()
+    policy["coverage_rules"] = ["not", "a", "mapping"]
+
+    policy_path = tmp_path / "invalid.json"
+    policy_path.write_text(
+        json.dumps(policy),
+        encoding = "utf-8"
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match = "coverage_rules must be an object"
+    ):
+        load_analysis_policy(policy_path=policy_path)
+
+
+# Confirming policy parsing rejects non-mapping cohort rules
+def test_load_analysis_policy_rejects_non_mapping_cohort_rule(tmp_path: Path) -> None:
+    policy = build_valid_policy_payload()
+    policy["coverage_rules"]["primary"] = "not a mapping"
+
+    policy_path = tmp_path / "invalid.json"
+    policy_path.write_text(
+        json.dumps(policy),
+        encoding = "utf-8"
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match = "Coverage rule must be an object"
+    ):
+        load_analysis_policy(policy_path=policy_path)
+
+
+# Confirming policy parsing rejects non-list horizon definitions
+def test_load_analysis_policy_rejects_non_list_horizons(tmp_path: Path) -> None:
+    policy = build_valid_policy_payload()
+    policy["horizon_definitions"] = {"not": "a list"}
+
+    policy_path = tmp_path / "invalid.json"
+    policy_path.write_text(
+        json.dumps(policy),
+        encoding = "utf-8"
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match = "horizon_definitions must be a list"
+    ):
+        load_analysis_policy(policy_path=policy_path)
+
+
+# Confirming cell-level baseline equipment excludes missing-value cells
+def test_baseline_balance_cell_level_equipment_excludes_missing_values() -> None:
+    cell_records = [
+        {
+            "cell_identity": f"Stage_1/TP_k01_0{cell_number}",
+            "condition_protocol_identity": (
+                "Stage_1/TP_k01/periodic_reference_tests"
+            ),
+            "dataset_stage": "Stage_1",
+            "aging_type": "k",
+            "aging_mode": "calendar_aging",
+            "test_point_number": "1",
+            "laboratory": "SIE",
+            "sampling_method": "FF",
+            "initial_voltage_volts": (
+                "3.61" if cell_number != 2 else ""
+            ),
+            "initial_voltage_meter": (
+                "meter_a" if cell_number != 2 else "meter_b"
+            )
+        }
+        for cell_number in range(1, 4)
+    ]
+
+    reference_records = [
+        {
+            "cell_identity": f"Stage_1/TP_k01_0{cell_number}",
+            "sequence_number": "1",
+            "mean_capacity_ah": "4.9",
+            "uncorrected_dc_internal_resistance_milliohms": "22.5",
+            "baseline_voltage_volts": "3.6"
+        }
+        for cell_number in range(1, 4)
+    ]
+
+    diagnostic_records = build_baseline_balance_diagnostics(
+        cell_records=cell_records,
+        reference_records=reference_records
+    )
+
+    voltage_summary = next(
+        record
+        for record in diagnostic_records
+        if (
+            record["record_type"] == "baseline_group_summary"
+            and record["baseline_field"] == "initial_voltage_volts"
+            and record["grouping_name"] == "stage"
+            and record["analysis_population"] == "assigned"
+        )
+    )
+
+    assert voltage_summary["available_cell_count"] == 2
+    assert voltage_summary["group_measurement_equipment_values"] == [
+        "meter_a"
+    ]
+
+
+# Rejecting a non-numerical horizon through the guarded parser
+def test_load_analysis_policy_rejects_nonnumerical_horizon(tmp_path: Path) -> None:
+    policy = build_valid_policy_payload()
+
+    policy["support_mode"] = "approved_discrete_horizons"
+
+    policy["horizon_definitions"] = [
+        {
+            "aging_mode": "calendar_aging",
+            "horizon_axis": "elapsed_calendar_days",
+            "horizon": "not-numerical",
+            "analysis_role": "primary",
+            "interpolation_rule": "exact_observation_only",
+            "maximum_bracketing_span": None,
+            "rationale": "test",
+            "source": "test"
+        }
+    ]
+
+    policy_path = tmp_path / "invalid.json"
+
+    policy_path.write_text(
+        json.dumps(policy),
+        encoding = "utf-8"
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match = "Horizon value must be numerical"
+    ):
+        load_analysis_policy(
+            policy_path = policy_path
+        )

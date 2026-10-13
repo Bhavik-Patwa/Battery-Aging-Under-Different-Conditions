@@ -148,6 +148,19 @@ CELL_LEVEL_BASELINE_EQUIPMENT_FIELDS = {
     "initial_voltage_volts": "initial_voltage_meter"
 }
 
+ET_DERIVED_BASELINE_FIELDS = {
+    "mean_capacity_ah",
+    "uncorrected_dc_internal_resistance_milliohms",
+    "baseline_voltage_volts"
+}
+
+REFERENCE_MEASUREMENT_EQUIPMENT_OUTPUT_FIELDS = [
+    "measurement_device",
+    "test_channel",
+    "climate_chamber",
+    "climate_chamber_position"
+]
+
 BASELINE_FIELD_ELIGIBILITY_FIELDS = {
     "mean_capacity_ah": {
         "primary": (
@@ -211,6 +224,11 @@ DESIGN_SPECIFICATIONS = [
     "main_effects_and_pairwise_interactions"
 ]
 
+EXPECTED_CELL_COUNT = 279
+
+EXPECTED_CONDITION_PROTOCOL_COUNT = 93
+
+EXPECTED_TEST_POINT_COUNT = 71
 
 # Listing context families without combining unrelated allocation dimensions
 def build_context_families(aging_mode: str) -> list[str]:
@@ -371,6 +389,23 @@ def parse_json_value(value: str) -> object:
     )
 
 
+# Parsing one finite numerical policy value
+def parse_policy_number(value: object, field_description: str) -> float:
+    if isinstance(value, bool):
+        raise RuntimeError(f"{field_description} must not be boolean.")
+
+    try:
+        numerical_value = float(value)
+
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError(f"{field_description} must be numerical.") from exc
+
+    if not math.isfinite(numerical_value):
+        raise RuntimeError(f"{field_description} must be finite.")
+
+    return numerical_value
+
+
 # Loading and validating the feature manifest
 def load_feature_manifest(manifest_path: Path) -> dict:
     manifest = load_strict_json_object(
@@ -398,13 +433,69 @@ def load_feature_manifest(manifest_path: Path) -> dict:
 
 
 # Loading one manifest-bound analytical table
-def load_validated_table(manifest_path: Path, table_name: str,
-                         table_manifest: dict
-) -> list[dict]:
-    table_path = (
-        manifest_path.parent
-        / table_manifest["file_name"]
-    )
+def load_validated_table(manifest_path: Path, table_name: str, table_manifest: dict) -> list[dict]:
+    required_manifest_fields = {
+        "file_name",
+        "row_count",
+        "schema",
+        "sha256"
+    }
+
+    if (
+        not isinstance(table_manifest, dict)
+        or set(table_manifest) != required_manifest_fields
+    ):
+        raise RuntimeError(f"Analytical-table manifest is invalid : {table_name}")
+
+    file_name = table_manifest["file_name"]
+
+    if not isinstance(file_name, str) or not file_name:
+        raise RuntimeError(f"Analytical-table file name is invalid : {table_name}")
+
+    relative_path = Path(file_name)
+
+    if (
+        relative_path.is_absolute()
+        or len(relative_path.parts) != 1
+    ):
+        raise RuntimeError(f"Analytical-table path must remain in the manifest directory : {table_name}")
+
+    row_count = table_manifest["row_count"]
+
+    if (
+        not isinstance(row_count, int)
+        or isinstance(row_count, bool)
+        or row_count < 0
+    ):
+        raise RuntimeError(f"Analytical-table row count is invalid : {table_name}")
+
+    schema = table_manifest["schema"]
+
+    if not isinstance(schema, list) or not schema:
+        raise RuntimeError(f"Analytical-table schema is invalid : {table_name}")
+
+    expected_field_names = []
+
+    for field_schema in schema:
+        if (
+            not isinstance(field_schema, dict)
+            or set(field_schema)
+            != {"name", "data_type", "nullable", "unit"}
+            or not isinstance(field_schema["name"], str)
+            or not field_schema["name"]
+        ):
+            raise RuntimeError(f"Analytical-table field schema is invalid : {table_name}")
+
+        expected_field_names.append(
+            field_schema["name"]
+        )
+
+    if len(expected_field_names) != len(
+        set(expected_field_names)
+    ):
+        raise RuntimeError(f"Analytical-table schema contains duplicate fields : {table_name}")
+
+    table_path = manifest_path.parent / relative_path
 
     observed_sha256 = calculate_sha256(
         table_path
@@ -416,6 +507,8 @@ def load_validated_table(manifest_path: Path, table_name: str,
             f"{table_name} : {observed_sha256} : {table_manifest['sha256']}"
         )
 
+    records = []
+
     with table_path.open(
         mode = "r",
         encoding = "utf-8",
@@ -425,31 +518,32 @@ def load_validated_table(manifest_path: Path, table_name: str,
             table_stream
         )
 
-        records = list(
-            table_reader
-        )
-
         field_names = (
             table_reader.fieldnames
             or []
         )
 
-    expected_field_names = [
-        field_schema["name"]
-        for field_schema in table_manifest[
-            "schema"
-        ]
-    ]
+        if field_names != expected_field_names:
+            raise RuntimeError(f"Analytical-table schema does not match the manifest : {table_name}")
 
-    if field_names != expected_field_names:
-        raise RuntimeError(
-            f"Analytical-table schema does not match the manifest : {table_name}"
-        )
+        for row_number, record in enumerate(
+            table_reader,
+            start = 2
+        ):
+            if None in record:
+                raise RuntimeError(f"Analytical table contains extra CSV fields : {table_name} : row {row_number}")
 
-    if len(records) != table_manifest["row_count"]:
+            if any(
+                value is None
+                for value in record.values()
+            ):
+                raise RuntimeError(f"Analytical table contains missing CSV fields : {table_name} : row {row_number}")
+
+            records.append(record)
+
+    if len(records) != row_count:
         raise RuntimeError(
-            "Analytical-table row count does not match the manifest : "
-            f"{table_name} : {len(records)} : {table_manifest['row_count']}"
+            f"Analytical-table row count does not match the manifest : {table_name} : {len(records)} : {row_count}"
         )
 
     return records
@@ -500,6 +594,9 @@ def load_analysis_policy(policy_path: Path) -> dict:
         "coverage_rules"
     ]
 
+    if not isinstance(coverage_rules, dict):
+        raise RuntimeError("Analysis-policy coverage_rules must be an object.")
+
     expected_cohorts = {
         "primary",
         "sensitivity"
@@ -509,6 +606,9 @@ def load_analysis_policy(policy_path: Path) -> dict:
         raise RuntimeError("Analysis policy must define primary and sensitivity coverage rules.")
 
     for cohort, rule in coverage_rules.items():
+        if not isinstance(rule, dict):
+            raise RuntimeError(f"Coverage rule must be an object : {cohort}")
+
         if set(rule) != {
             "minimum_assigned_cell_coverage_fraction",
             "rationale"
@@ -519,20 +619,10 @@ def load_analysis_policy(policy_path: Path) -> dict:
             "minimum_assigned_cell_coverage_fraction"
         ]
 
-        if isinstance(
+        minimum_fraction = parse_policy_number(
             raw_fraction,
-            bool
-        ):
-            raise RuntimeError(f"Coverage fraction must not be boolean : {cohort}")
-
-        minimum_fraction = float(
-            raw_fraction
+            f"Coverage fraction for {cohort}"
         )
-
-        if not math.isfinite(
-            minimum_fraction
-        ):
-            raise RuntimeError(f"Coverage fraction must be finite : {cohort}")
 
         if not 0 < minimum_fraction <= 1:
             raise RuntimeError(f"Coverage fraction must be greater than zero and no greater than one : {cohort}")
@@ -563,9 +653,17 @@ def load_analysis_policy(policy_path: Path) -> dict:
         )
     }
 
+    horizon_definitions = policy["horizon_definitions"]
+
+    if not isinstance(horizon_definitions, list):
+        raise RuntimeError("Analysis-policy horizon_definitions must be a list.")
+
     seen_horizon_keys = set()
 
-    for definition in policy["horizon_definitions"]:
+    for definition in horizon_definitions:
+        if not isinstance(definition, dict):
+            raise RuntimeError("Every horizon definition must be an object.")
+
         if set(definition) != {
             "aging_mode",
             "horizon_axis",
@@ -578,10 +676,15 @@ def load_analysis_policy(policy_path: Path) -> dict:
         }:
             raise RuntimeError("Horizon definition contains invalid fields.")
 
+        horizon = parse_policy_number(
+            definition["horizon"],
+            "Horizon value"
+        )
+
         key = (
             definition["aging_mode"],
             definition["horizon_axis"],
-            float(definition["horizon"]),
+            horizon,
             definition["analysis_role"]
         )
 
@@ -603,11 +706,12 @@ def load_analysis_policy(policy_path: Path) -> dict:
         if axis_identity not in valid_axes:
             raise RuntimeError(f"Invalid aging-mode and horizon-axis combination : {axis_identity}")
 
-        horizon = float(
-            definition["horizon"]
+        horizon = parse_policy_number(
+            definition["horizon"],
+            "Horizon value"
         )
 
-        if not math.isfinite(horizon) or horizon <= 0:
+        if horizon <= 0:
             raise RuntimeError(f"Invalid comparison horizon : {horizon!r}")
 
         if definition["analysis_role"] not in {
@@ -628,16 +732,12 @@ def load_analysis_policy(policy_path: Path) -> dict:
         ]
 
         if maximum_bracketing_span is not None:
-            maximum_bracketing_span = float(
-                maximum_bracketing_span
+            maximum_bracketing_span = parse_policy_number(
+                maximum_bracketing_span,
+                "Maximum bracketing span"
             )
 
-            if (
-                not math.isfinite(
-                    maximum_bracketing_span
-                )
-                or maximum_bracketing_span <= 0
-            ):
+            if maximum_bracketing_span <= 0:
                 raise RuntimeError("Maximum bracketing span must be positive and finite.")
 
         if (
@@ -823,7 +923,11 @@ def load_analysis_policy(policy_path: Path) -> dict:
             "requires_separate_model_specific_validation"
         ),
         "one_factor_contrast_structure": (
-            "requires_exactly_one_changed_treatment_and_no_disjoint_or_identity_conflicted_equipment_allocation"
+            "requires_exactly_one_changed_assigned_treatment"
+        ),
+        "one_factor_condition_comparison_support": (
+            "permitted_with_restrictions_when_direct_contrast_"
+            "support_requirements_are_satisfied"
         ),
         "one_factor_contrast_identification": (
             "not_established_assignment_mechanism_undocumented"
@@ -1058,11 +1162,14 @@ def group_records_by_cell(records: list[dict]) -> dict[str, list[dict]]:
 def validate_design_dimensions(cell_records: list[dict], condition_records: list[dict],
                                reference_records: list[dict]
 ) -> None:
-    if len(cell_records) != 279:
-        raise RuntimeError(f"Experimental-design audit requires 279 cells : {len(cell_records)}")
+    if len(cell_records) != EXPECTED_CELL_COUNT:
+        raise RuntimeError(f"Experimental-design audit requires {EXPECTED_CELL_COUNT} cells : {len(cell_records)}")
 
-    if len(condition_records) != 93:
-        raise RuntimeError(f"Experimental-design audit requires 93 condition protocols : {len(condition_records)}")
+    if len(condition_records) != EXPECTED_CONDITION_PROTOCOL_COUNT:
+        raise RuntimeError(
+            "Experimental-design audit requires "
+            f"{EXPECTED_CONDITION_PROTOCOL_COUNT} condition protocols : {len(condition_records)}"
+        )
 
     cell_identities = [
         record["cell_identity"]
@@ -1250,6 +1357,238 @@ def build_equipment_inventory(audit_result: dict) -> dict:
     return equipment_by_cell
 
 
+# Building exact per-source reference-measurement equipment evidence
+def build_reference_measurement_equipment_by_source_identity(audit_result: dict) -> dict:
+    equipment_by_source_identity = {}
+
+    for archive_record in audit_result[
+        "archives"
+    ]:
+        for measurement_record in archive_record[
+            "measurements"
+        ]:
+            source_identity = measurement_record[
+                "source_identity"
+            ]
+
+            if source_identity in equipment_by_source_identity:
+                raise RuntimeError(f"Audit contains duplicate equipment source identity : {source_identity}")
+
+            companion_metadata = measurement_record.get(
+                "companion_metadata"
+            )
+
+            if companion_metadata is None:
+                equipment_by_source_identity[
+                    source_identity
+                ] = {
+                    "evidence_status": "unavailable",
+                    "equipment": {
+                        output_field: None
+                        for output_field in (
+                            REFERENCE_MEASUREMENT_EQUIPMENT_OUTPUT_FIELDS
+                        )
+                    }
+                }
+
+                continue
+
+            identity_conflicted = any(
+                quality_reason["reason_code"]
+                == "COMPANION_METADATA_IDENTITY_MISMATCH"
+                for quality_reason in measurement_record[
+                    "quality_reasons"
+                ]
+            )
+
+            equipment_values = {
+                output_field: companion_metadata.get(
+                    EQUIPMENT_FIELDS[
+                        equipment_key
+                    ]
+                )
+                for (
+                    equipment_key,
+                    output_field
+                ) in [
+                    (
+                        "measurement_devices",
+                        "measurement_device"
+                    ),
+                    (
+                        "test_channels",
+                        "test_channel"
+                    ),
+                    (
+                        "climate_chambers",
+                        "climate_chamber"
+                    ),
+                    (
+                        "climate_chamber_positions",
+                        "climate_chamber_position"
+                    )
+                ]
+            }
+
+            if identity_conflicted:
+                evidence_status = "identity_conflicted"
+
+            elif all(
+                value not in {None, ""}
+                for value in equipment_values.values()
+            ):
+                evidence_status = "validated"
+
+            else:
+                evidence_status = "incomplete"
+
+            equipment_by_source_identity[
+                source_identity
+            ] = {
+                "evidence_status": evidence_status,
+                "equipment": equipment_values
+            }
+
+    return equipment_by_source_identity
+
+
+# Summarizing reference-measurement equipment evidence across a record population
+def build_reference_measurement_equipment_summary(records: list[dict]) -> dict:
+    validated_signatures = set()
+    validated_cell_count = 0
+    unavailable_cell_count = 0
+    identity_conflicted_cell_count = 0
+    incomplete_cell_count = 0
+
+    for record in records:
+        equipment_record = record.get(
+            "reference_measurement_equipment"
+        )
+
+        if equipment_record is None:
+            unavailable_cell_count += 1
+            continue
+
+        evidence_status = equipment_record[
+            "evidence_status"
+        ]
+
+        if evidence_status == "validated":
+            validated_cell_count += 1
+
+            validated_signatures.add(
+                json.dumps(
+                    equipment_record["equipment"],
+                    sort_keys = True,
+                    separators = (
+                        ",",
+                        ":"
+                    )
+                )
+            )
+
+        elif evidence_status == "unavailable":
+            unavailable_cell_count += 1
+
+        elif evidence_status == "identity_conflicted":
+            identity_conflicted_cell_count += 1
+
+        elif evidence_status == "incomplete":
+            incomplete_cell_count += 1
+
+        else:
+            raise RuntimeError(
+                f"Reference-measurement equipment contains an unknown evidence status : {evidence_status!r}"
+            )
+
+    classified_cell_count = (
+        validated_cell_count
+        + unavailable_cell_count
+        + identity_conflicted_cell_count
+        + incomplete_cell_count
+    )
+
+    if classified_cell_count != len(records):
+        raise RuntimeError(
+            "Reference-measurement equipment evidence does not reconcile to the record population : "
+            f"{classified_cell_count} : {len(records)}"
+        )
+
+    return {
+        "validated_signatures": sorted(
+            validated_signatures
+        ),
+        "validated_cell_count": (
+            validated_cell_count
+        ),
+        "unavailable_cell_count": (
+            unavailable_cell_count
+        ),
+        "identity_conflicted_cell_count": (
+            identity_conflicted_cell_count
+        ),
+        "incomplete_cell_count": (
+            incomplete_cell_count
+        )
+    }
+
+
+# Classifying reference-measurement equipment evidence across two populations
+def classify_reference_measurement_equipment_relationship(first_summary: dict, second_summary: dict) -> str:
+    first_total = (
+        first_summary["validated_cell_count"]
+        + first_summary["unavailable_cell_count"]
+        + first_summary["identity_conflicted_cell_count"]
+        + first_summary["incomplete_cell_count"]
+    )
+
+    second_total = (
+        second_summary["validated_cell_count"]
+        + second_summary["unavailable_cell_count"]
+        + second_summary["identity_conflicted_cell_count"]
+        + second_summary["incomplete_cell_count"]
+    )
+
+    if first_total == 0 or second_total == 0:
+        return "unavailable"
+
+    if (
+        first_summary[
+            "identity_conflicted_cell_count"
+        ] > 0
+        or second_summary[
+            "identity_conflicted_cell_count"
+        ] > 0
+    ):
+        return "identity_conflicted"
+
+    if (
+        first_summary["unavailable_cell_count"] > 0
+        or second_summary["unavailable_cell_count"] > 0
+        or first_summary["incomplete_cell_count"] > 0
+        or second_summary["incomplete_cell_count"] > 0
+    ):
+        return "partially_evidenced"
+
+    first_signatures = set(
+        first_summary["validated_signatures"]
+    )
+
+    second_signatures = set(
+        second_summary["validated_signatures"]
+    )
+
+    if first_signatures == second_signatures:
+        return "identical"
+
+    if first_signatures.intersection(
+        second_signatures
+    ):
+        return "overlapping"
+
+    return "disjoint"
+
+
 # Summarizing validated and conflicted equipment evidence separately
 def summarize_role_separated_equipment(cell_identities: set[str], equipment_by_cell: dict,
                                        aging_mode: str
@@ -1422,6 +1761,9 @@ def calculate_required_support_cell_count(assigned_cell_count: int, minimum_assi
     if assigned_cell_count <= 0:
         return 0
 
+    # The 1e-12 offset guards against floating-point rounding near integer boundaries.
+    # Without it, a coverage fraction that should be exactly one half could compute to 0.5000000000000001
+    #  and incorrectly round up under math.ceil.
     return max(
         1,
         math.ceil(
@@ -2917,9 +3259,31 @@ def build_cell_design_records(cell_records: list[dict], reference_records: list[
 
 
 # Calculating a pooled standardized mean difference between two groups
-def calculate_standardized_mean_difference(first_values: list[float], second_values: list[float]) -> float | None:
+def calculate_standardized_mean_difference(first_values: list[float], second_values: list[float]) -> tuple[float | None, str]:
     if len(first_values) < 2 or len(second_values) < 2:
-        return None
+        return None, "insufficient_samples"
+
+    if not all(
+        math.isfinite(value)
+        for value in [
+            *first_values,
+            *second_values
+        ]
+    ):
+        return None, "undefined_nonfinite_input"
+
+    # Standardized mean difference is undefined when neither group contains any observed within-group variation.
+    # This is an exact, observable condition and does not depend on a numerical tolerance.
+    first_is_constant = (
+        min(first_values) == max(first_values)
+    )
+
+    second_is_constant = (
+        min(second_values) == max(second_values)
+    )
+
+    if first_is_constant and second_is_constant:
+        return None, "undefined_no_within_group_variation"
 
     first_variance = float(
         np.var(
@@ -2949,19 +3313,31 @@ def calculate_standardized_mean_difference(first_values: list[float], second_val
         )
     )
 
-    if pooled_variance <= 0:
-        return None
+    if (
+        not math.isfinite(pooled_variance)
+        or pooled_variance <= 0
+    ):
+        return None, "undefined_nonpositive_pooled_variance"
 
-    return (
+    standardized_difference = (
         float(np.mean(first_values))
         - float(np.mean(second_values))
     ) / math.sqrt(
         pooled_variance
     )
 
+    if not math.isfinite(standardized_difference):
+        return None, "undefined_nonfinite_result"
+
+    return standardized_difference, "defined"
+
 
 # Building baseline comparability separately for assigned and eligible populations
-def build_baseline_balance_diagnostics(cell_records: list[dict], reference_records: list[dict]) -> list[dict]:
+def build_baseline_balance_diagnostics(cell_records: list[dict], reference_records: list[dict],
+                                       reference_measurement_equipment_by_source_identity: dict | None = None
+) -> list[dict]:
+    if reference_measurement_equipment_by_source_identity is None:
+        reference_measurement_equipment_by_source_identity = {}
     baseline_records = [
         record
         for record in reference_records
@@ -3001,26 +3377,40 @@ def build_baseline_balance_diagnostics(cell_records: list[dict], reference_recor
         }
     )
 
-    cell_records_with_baseline = [
-        {
-            **cell_record,
-            **{
-                field_name: (
-                    baseline_by_cell.get(
-                        cell_record["cell_identity"],
-                        {}
-                    ).get(
+    cell_records_with_baseline = []
+
+    for cell_record in cell_records:
+        baseline_record = baseline_by_cell.get(
+            cell_record["cell_identity"],
+            {}
+        )
+
+        baseline_source_identity = baseline_record.get(
+            "source_identity"
+        )
+
+        cell_records_with_baseline.append(
+            {
+                **cell_record,
+                "baseline_source_identity": (
+                    baseline_source_identity
+                ),
+                "reference_measurement_equipment": (
+                    reference_measurement_equipment_by_source_identity.get(
+                        baseline_source_identity
+                    )
+                ),
+                **{
+                    field_name: baseline_record.get(
                         field_name
                     )
-                )
-                for field_name in [
-                    *BASELINE_FIELDS,
-                    *eligibility_fields
-                ]
+                    for field_name in [
+                        *BASELINE_FIELDS,
+                        *eligibility_fields
+                    ]
+                }
             }
-        }
-        for cell_record in cell_records
-    ]
+        )
 
     grouping_specifications = [
         (
@@ -3194,20 +3584,31 @@ def build_baseline_balance_diagnostics(cell_records: list[dict], reference_recor
                         )
                     ]
 
-                    observed_values = [
-                        numerical_value
-                        for numerical_value in (
-                            parse_baseline_value(
-                                record = record,
-                                baseline_field = (
-                                    baseline_field
+                    observed_value_records = [
+                        (
+                            record,
+                            numerical_value
+                        )
+                        for record, numerical_value in (
+                            (
+                                record,
+                                parse_baseline_value(
+                                    record = record,
+                                    baseline_field = (
+                                        baseline_field
+                                    )
                                 )
                             )
-                            for record in (
-                                population_records
-                            )
+                            for record in population_records
                         )
                         if numerical_value is not None
+                    ]
+
+                    observed_values = [
+                        numerical_value
+                        for _, numerical_value in (
+                            observed_value_records
+                        )
                     ]
 
                     if not observed_values:
@@ -3226,13 +3627,70 @@ def build_baseline_balance_diagnostics(cell_records: list[dict], reference_recor
                         )
                     )
 
-                    (
-                        measurement_equipment_field,
-                        group_measurement_equipment_values
-                    ) = collect_measurement_equipment_values(
-                        records = population_records,
-                        baseline_field = baseline_field
-                    )
+                    if baseline_field in ET_DERIVED_BASELINE_FIELDS:
+                        group_equipment_summary = (
+                            build_reference_measurement_equipment_summary(
+                                records = [
+                                    record
+                                    for record, _ in (
+                                        observed_value_records
+                                    )
+                                ]
+                            )
+                        )
+
+                        measurement_equipment_field = (
+                            "reference_measurement_equipment"
+                        )
+
+                        group_measurement_equipment_values = (
+                            group_equipment_summary[
+                                "validated_signatures"
+                            ]
+                        )
+
+                        group_validated_equipment_cell_count = (
+                            group_equipment_summary[
+                                "validated_cell_count"
+                            ]
+                        )
+
+                        group_unavailable_equipment_cell_count = (
+                            group_equipment_summary[
+                                "unavailable_cell_count"
+                            ]
+                        )
+
+                        group_identity_conflicted_equipment_cell_count = (
+                            group_equipment_summary[
+                                "identity_conflicted_cell_count"
+                            ]
+                        )
+
+                        group_incomplete_equipment_cell_count = (
+                            group_equipment_summary[
+                                "incomplete_cell_count"
+                            ]
+                        )
+
+                    else:
+                        (
+                            measurement_equipment_field,
+                            group_measurement_equipment_values
+                        ) = collect_measurement_equipment_values(
+                            records = [
+                                record
+                                for record, _ in (
+                                    observed_value_records
+                                )
+                            ],
+                            baseline_field = baseline_field
+                        )
+
+                        group_validated_equipment_cell_count = None
+                        group_unavailable_equipment_cell_count = None
+                        group_identity_conflicted_equipment_cell_count = None
+                        group_incomplete_equipment_cell_count = None
 
                     diagnostic_records.append(
                         {
@@ -3306,6 +3764,9 @@ def build_baseline_balance_diagnostics(cell_records: list[dict], reference_recor
                             "standardized_mean_difference": (
                                 None
                             ),
+                            "standardized_mean_difference_status": (
+                                "not_applicable_group_summary"
+                            ),
                             "first_aging_mode": None,
                             "second_aging_mode": None,
                             "first_dataset_stage": None,
@@ -3329,7 +3790,27 @@ def build_baseline_balance_diagnostics(cell_records: list[dict], reference_recor
                                 if measurement_equipment_field
                                 is not None
                                 else "not_applicable"
-                            )
+                            ),
+                            "group_validated_equipment_cell_count": (
+                                group_validated_equipment_cell_count
+                            ),
+                            "group_unavailable_equipment_cell_count": (
+                                group_unavailable_equipment_cell_count
+                            ),
+                            "group_identity_conflicted_equipment_cell_count": (
+                                group_identity_conflicted_equipment_cell_count
+                            ),
+                            "group_incomplete_equipment_cell_count": (
+                                group_incomplete_equipment_cell_count
+                            ),
+                            "first_validated_equipment_cell_count": None,
+                            "first_unavailable_equipment_cell_count": None,
+                            "first_identity_conflicted_equipment_cell_count": None,
+                            "first_incomplete_equipment_cell_count": None,
+                            "second_validated_equipment_cell_count": None,
+                            "second_unavailable_equipment_cell_count": None,
+                            "second_identity_conflicted_equipment_cell_count": None,
+                            "second_incomplete_equipment_cell_count": None
                         }
                     )
 
@@ -3488,13 +3969,19 @@ def build_baseline_balance_diagnostics(cell_records: list[dict], reference_recor
                     )
                 ]
 
-                first_values = [
-                    numerical_value
-                    for numerical_value in (
-                        parse_baseline_value(
-                            record = record,
-                            baseline_field = (
-                                baseline_field
+                first_observed_records = [
+                    (
+                        record,
+                        numerical_value
+                    )
+                    for record, numerical_value in (
+                        (
+                            record,
+                            parse_baseline_value(
+                                record = record,
+                                baseline_field = (
+                                    baseline_field
+                                )
                             )
                         )
                         for record in (
@@ -3504,13 +3991,19 @@ def build_baseline_balance_diagnostics(cell_records: list[dict], reference_recor
                     if numerical_value is not None
                 ]
 
-                second_values = [
-                    numerical_value
-                    for numerical_value in (
-                        parse_baseline_value(
-                            record = record,
-                            baseline_field = (
-                                baseline_field
+                second_observed_records = [
+                    (
+                        record,
+                        numerical_value
+                    )
+                    for record, numerical_value in (
+                        (
+                            record,
+                            parse_baseline_value(
+                                record = record,
+                                baseline_field = (
+                                    baseline_field
+                                )
                             )
                         )
                         for record in (
@@ -3518,6 +4011,20 @@ def build_baseline_balance_diagnostics(cell_records: list[dict], reference_recor
                         )
                     )
                     if numerical_value is not None
+                ]
+
+                first_values = [
+                    numerical_value
+                    for _, numerical_value in (
+                        first_observed_records
+                    )
+                ]
+
+                second_values = [
+                    numerical_value
+                    for _, numerical_value in (
+                        second_observed_records
+                    )
                 ]
 
                 if (
@@ -3543,13 +4050,12 @@ def build_baseline_balance_diagnostics(cell_records: list[dict], reference_recor
                     mean_difference
                 )
 
-                standardized_difference = (
-                    calculate_standardized_mean_difference(
-                        first_values = first_values,
-                        second_values = (
-                            second_values
-                        )
-                    )
+                (
+                    standardized_difference,
+                    standardized_difference_status
+                ) = calculate_standardized_mean_difference(
+                    first_values = first_values,
+                    second_values = second_values
                 )
 
                 eligibility_field = (
@@ -3565,34 +4071,152 @@ def build_baseline_balance_diagnostics(cell_records: list[dict], reference_recor
                     )
                 )
 
-                (
-                    measurement_equipment_field,
-                    first_measurement_equipment_values
-                ) = collect_measurement_equipment_values(
-                    records = first_population_records,
-                    baseline_field = baseline_field
-                )
-
-                (
-                    _,
-                    second_measurement_equipment_values
-                ) = collect_measurement_equipment_values(
-                    records = second_population_records,
-                    baseline_field = baseline_field
-                )
-
-                measurement_equipment_relationship = (
-                    classify_measurement_equipment_relationship(
-                        first_values = (
-                            first_measurement_equipment_values
-                        ),
-                        second_values = (
-                            second_measurement_equipment_values
+                if baseline_field in ET_DERIVED_BASELINE_FIELDS:
+                    first_equipment_summary = (
+                        build_reference_measurement_equipment_summary(
+                            records = [
+                                record
+                                for record, _ in (
+                                    first_observed_records
+                                )
+                            ]
                         )
                     )
-                    if measurement_equipment_field is not None
-                    else "not_applicable"
-                )
+
+                    second_equipment_summary = (
+                        build_reference_measurement_equipment_summary(
+                            records = [
+                                record
+                                for record, _ in (
+                                    second_observed_records
+                                )
+                            ]
+                        )
+                    )
+
+                    measurement_equipment_field = (
+                        "reference_measurement_equipment"
+                    )
+
+                    first_measurement_equipment_values = (
+                        first_equipment_summary[
+                            "validated_signatures"
+                        ]
+                    )
+
+                    second_measurement_equipment_values = (
+                        second_equipment_summary[
+                            "validated_signatures"
+                        ]
+                    )
+
+                    measurement_equipment_relationship = (
+                        classify_reference_measurement_equipment_relationship(
+                            first_summary = (
+                                first_equipment_summary
+                            ),
+                            second_summary = (
+                                second_equipment_summary
+                            )
+                        )
+                    )
+
+                    first_validated_equipment_cell_count = (
+                        first_equipment_summary[
+                            "validated_cell_count"
+                        ]
+                    )
+
+                    first_unavailable_equipment_cell_count = (
+                        first_equipment_summary[
+                            "unavailable_cell_count"
+                        ]
+                    )
+
+                    first_identity_conflicted_equipment_cell_count = (
+                        first_equipment_summary[
+                            "identity_conflicted_cell_count"
+                        ]
+                    )
+
+                    first_incomplete_equipment_cell_count = (
+                        first_equipment_summary[
+                            "incomplete_cell_count"
+                        ]
+                    )
+
+                    second_validated_equipment_cell_count = (
+                        second_equipment_summary[
+                            "validated_cell_count"
+                        ]
+                    )
+
+                    second_unavailable_equipment_cell_count = (
+                        second_equipment_summary[
+                            "unavailable_cell_count"
+                        ]
+                    )
+
+                    second_identity_conflicted_equipment_cell_count = (
+                        second_equipment_summary[
+                            "identity_conflicted_cell_count"
+                        ]
+                    )
+
+                    second_incomplete_equipment_cell_count = (
+                        second_equipment_summary[
+                            "incomplete_cell_count"
+                        ]
+                    )
+
+                else:
+                    (
+                        measurement_equipment_field,
+                        first_measurement_equipment_values
+                    ) = collect_measurement_equipment_values(
+                        records = [
+                            record
+                            for record, _ in (
+                                first_observed_records
+                            )
+                        ],
+                        baseline_field = baseline_field
+                    )
+
+                    (
+                        _,
+                        second_measurement_equipment_values
+                    ) = collect_measurement_equipment_values(
+                        records = [
+                            record
+                            for record, _ in (
+                                second_observed_records
+                            )
+                        ],
+                        baseline_field = baseline_field
+                    )
+
+                    measurement_equipment_relationship = (
+                        classify_measurement_equipment_relationship(
+                            first_values = (
+                                first_measurement_equipment_values
+                            ),
+                            second_values = (
+                                second_measurement_equipment_values
+                            )
+                        )
+                        if measurement_equipment_field is not None
+                        else "not_applicable"
+                    )
+
+                    first_validated_equipment_cell_count = None
+                    first_unavailable_equipment_cell_count = None
+                    first_identity_conflicted_equipment_cell_count = None
+                    first_incomplete_equipment_cell_count = None
+                    second_validated_equipment_cell_count = None
+                    second_unavailable_equipment_cell_count = None
+                    second_identity_conflicted_equipment_cell_count = None
+                    second_incomplete_equipment_cell_count = None
 
                 diagnostic_records.append(
                     {
@@ -3662,6 +4286,9 @@ def build_baseline_balance_diagnostics(cell_records: list[dict], reference_recor
                         "standardized_mean_difference": (
                             standardized_difference
                         ),
+                        "standardized_mean_difference_status": (
+                            standardized_difference_status
+                        ),
                         "first_aging_mode": (
                             first_aging_mode
                         ),
@@ -3692,6 +4319,34 @@ def build_baseline_balance_diagnostics(cell_records: list[dict], reference_recor
                         ),
                         "measurement_equipment_relationship": (
                             measurement_equipment_relationship
+                        ),
+                        "group_validated_equipment_cell_count": None,
+                        "group_unavailable_equipment_cell_count": None,
+                        "group_identity_conflicted_equipment_cell_count": None,
+                        "group_incomplete_equipment_cell_count": None,
+                        "first_validated_equipment_cell_count": (
+                            first_validated_equipment_cell_count
+                        ),
+                        "first_unavailable_equipment_cell_count": (
+                            first_unavailable_equipment_cell_count
+                        ),
+                        "first_identity_conflicted_equipment_cell_count": (
+                            first_identity_conflicted_equipment_cell_count
+                        ),
+                        "first_incomplete_equipment_cell_count": (
+                            first_incomplete_equipment_cell_count
+                        ),
+                        "second_validated_equipment_cell_count": (
+                            second_validated_equipment_cell_count
+                        ),
+                        "second_unavailable_equipment_cell_count": (
+                            second_unavailable_equipment_cell_count
+                        ),
+                        "second_identity_conflicted_equipment_cell_count": (
+                            second_identity_conflicted_equipment_cell_count
+                        ),
+                        "second_incomplete_equipment_cell_count": (
+                            second_incomplete_equipment_cell_count
                         )
                     }
                 )
@@ -3952,49 +4607,67 @@ def classify_estimand_support(changed_treatment_count: int, context_difference_c
     )
 
 
+def resolve_identity_conflicted_equipment_field(equipment_field: str) -> str:
+    for output_field in EQUIPMENT_FIELDS:
+        suffix = f"_{output_field}"
+
+        if equipment_field.endswith(suffix):
+            return (
+                f"{equipment_field[:-len(suffix)]}"
+                f"_identity_conflicted_{output_field}"
+            )
+
+    raise RuntimeError(f"Unknown equipment-allocation field : {equipment_field}")
+
+
+def build_equipment_restriction_code(restriction_prefix: str, relationship: str) -> str | None:
+    suffixes = {
+        "identical_or_shared": None,
+        "overlapping": "OVERLAPPING",
+        "disjoint": "DISJOINT",
+        "unavailable": "UNAVAILABLE",
+        "identity_conflicted": "IDENTITY_CONFLICTED"
+    }
+
+    if relationship not in suffixes:
+        raise RuntimeError(f"Unknown equipment-allocation relationship : {relationship}")
+
+    suffix = suffixes[relationship]
+
+    return (
+        None
+        if suffix is None
+        else f"{restriction_prefix}_{suffix}"
+    )
+
+
 # Comparing equipment overlap without equating imbalance with aliasing
 def compare_equipment_allocation(first_support: dict, second_support: dict,
                                  equipment_fields: list[tuple[str, str]]
 ) -> list[dict]:
     allocation_records = []
 
-    for equipment_field, difference_code in equipment_fields:
+    for equipment_field, restriction_prefix in equipment_fields:
         first_validated = set(
-            first_support[
-                equipment_field
-            ]
+            first_support[equipment_field]
         )
 
         second_validated = set(
-            second_support[
-                equipment_field
-            ]
+            second_support[equipment_field]
         )
 
-        conflicted_field = equipment_field.replace(
-            "_measurement_devices",
-            "_identity_conflicted_measurement_devices"
-        ).replace(
-            "_test_channels",
-            "_identity_conflicted_test_channels"
-        ).replace(
-            "_climate_chambers",
-            "_identity_conflicted_climate_chambers"
-        ).replace(
-            "_climate_chamber_positions",
-            "_identity_conflicted_climate_chamber_positions"
+        conflicted_field = (
+            resolve_identity_conflicted_equipment_field(
+                equipment_field
+            )
         )
 
         first_conflicted = set(
-            first_support[
-                conflicted_field
-            ]
+            first_support[conflicted_field]
         )
 
         second_conflicted = set(
-            second_support[
-                conflicted_field
-            ]
+            second_support[conflicted_field]
         )
 
         if first_conflicted or second_conflicted:
@@ -4020,14 +4693,15 @@ def compare_equipment_allocation(first_support: dict, second_support: dict,
         allocation_records.append(
             {
                 "equipment_field": equipment_field,
-                "difference_code": difference_code,
                 "relationship": relationship,
-                "first_values": sorted(
-                    first_validated
+                "restriction_code": (
+                    build_equipment_restriction_code(
+                        restriction_prefix = restriction_prefix,
+                        relationship = relationship
+                    )
                 ),
-                "second_values": sorted(
-                    second_validated
-                )
+                "first_values": sorted(first_validated),
+                "second_values": sorted(second_validated)
             }
         )
 
@@ -4037,9 +4711,7 @@ def compare_equipment_allocation(first_support: dict, second_support: dict,
 # Separating descriptive, one-factor-structure and joint-condition permissions
 def build_question_disposition(record: dict) -> dict:
     bracketing_support_available = bool(
-        record[
-            "permitted_bracketing_ranges"
-        ]
+        record["permitted_bracketing_ranges"]
     )
 
     replicated = min(
@@ -4050,23 +4722,16 @@ def build_question_disposition(record: dict) -> dict:
     analytically_supported = (
         record["direct_contrast_support_status"]
         == "supported_with_restrictions"
-        and record.get(
-            "target_estimand_available",
-            False
-        )
+        and record.get("target_estimand_available", False)
     )
 
-    one_factor_contrast_supported = (
+    one_factor_structure_present = (
+        len(record["changed_treatments"]) == 1
+    )
+
+    one_factor_comparison_supported = (
         analytically_supported
-        and len(record["changed_treatments"]) == 1
-        and record.get(
-            "equipment_disjoint_dimension_count",
-            0
-        ) == 0
-        and record.get(
-            "equipment_identity_conflicted_dimension_count",
-            0
-        ) == 0
+        and one_factor_structure_present
     )
 
     joint_condition_supported = (
@@ -4077,13 +4742,12 @@ def build_question_disposition(record: dict) -> dict:
     return {
         "descriptive_analysis_status": (
             "permitted_with_restrictions"
-            if bracketing_support_available
-            and replicated
+            if bracketing_support_available and replicated
             else "blocked"
         ),
         "condition_comparison_interpretation": (
             "one_factor_structural_contrast"
-            if len(record["changed_treatments"]) == 1
+            if one_factor_structure_present
             else "joint_treatment_combination_contrast"
         ),
         "joint_condition_comparison_status": (
@@ -4092,19 +4756,20 @@ def build_question_disposition(record: dict) -> dict:
             else "not_supported"
         ),
         "one_factor_contrast_structure_status": (
+            "present"
+            if one_factor_structure_present
+            else "not_present"
+        ),
+        "one_factor_condition_comparison_status": (
             "permitted_with_restrictions"
-            if one_factor_contrast_supported
+            if one_factor_comparison_supported
             else "not_supported"
         ),
         "one_factor_contrast_identification_status": (
             "not_established_assignment_mechanism_undocumented"
         ),
-        "causal_identification_status": (
-            "not_established"
-        ),
-        "cross_stage_transportability_status": (
-            "not_applicable"
-        )
+        "causal_identification_status": "not_established",
+        "cross_stage_transportability_status": "not_applicable"
     }
 
 
@@ -4137,6 +4802,58 @@ def direct_supported_question_count(records: list[dict]) -> int:
             for record in records
         }
     )
+
+
+# Classifying cycle-exposure equipment evidence across a condition pair
+def classify_exposure_context(aging_mode: str, first_support: dict,
+                              second_support: dict
+) -> str:
+    if aging_mode == "calendar_aging":
+        return "unavailable_from_measurement_files"
+
+    if aging_mode != "cycle_aging":
+        raise RuntimeError(f"Unknown aging mode : {aging_mode}")
+
+    equipment_fields = [
+        "cycle_aging_exposure_measurement_devices",
+        "cycle_aging_exposure_test_channels",
+        "cycle_aging_exposure_climate_chambers",
+        "cycle_aging_exposure_climate_chamber_positions"
+    ]
+
+    conflicted_fields = [
+        resolve_identity_conflicted_equipment_field(
+            field_name
+        )
+        for field_name in equipment_fields
+    ]
+
+    if any(
+        first_support[field_name]
+        or second_support[field_name]
+        for field_name in conflicted_fields
+    ):
+        return "identity_conflicted"
+
+    pair_availability = [
+        bool(first_support[field_name])
+        and bool(second_support[field_name])
+        for field_name in equipment_fields
+    ]
+
+    any_evidence = any(
+        bool(first_support[field_name])
+        or bool(second_support[field_name])
+        for field_name in equipment_fields
+    )
+
+    if all(pair_availability):
+        return "available"
+
+    if any_evidence:
+        return "incomplete"
+
+    return "unavailable"
 
 
 # Building explicit support decisions for every condition comparison
@@ -4260,25 +4977,23 @@ def build_estimand_support(condition_records: list[dict], treatment_support_reco
                 ]
             )
 
-            recorded_equipment_differences = []
-
             # Comparing every recorded equipment-allocation dimension
             equipment_comparison_fields = [
                 (
                     "reference_measurement_measurement_devices",
-                    "REFERENCE_MEASUREMENT_DEVICE_ALLOCATION_DIFFERS"
+                    "REFERENCE_MEASUREMENT_DEVICE_ALLOCATION"
                 ),
                 (
                     "reference_measurement_test_channels",
-                    "REFERENCE_MEASUREMENT_CHANNEL_ALLOCATION_DIFFERS"
+                    "REFERENCE_MEASUREMENT_CHANNEL_ALLOCATION"
                 ),
                 (
                     "reference_measurement_climate_chambers",
-                    "REFERENCE_MEASUREMENT_CHAMBER_ALLOCATION_DIFFERS"
+                    "REFERENCE_MEASUREMENT_CHAMBER_ALLOCATION"
                 ),
                 (
                     "reference_measurement_climate_chamber_positions",
-                    "REFERENCE_MEASUREMENT_CHAMBER_POSITION_DIFFERS"
+                    "REFERENCE_MEASUREMENT_CHAMBER_POSITION"
                 )
             ]
 
@@ -4287,19 +5002,19 @@ def build_estimand_support(condition_records: list[dict], treatment_support_reco
                     [
                         (
                             "cycle_aging_exposure_measurement_devices",
-                            "CYCLE_EXPOSURE_DEVICE_ALLOCATION_DIFFERS"
+                            "CYCLE_EXPOSURE_DEVICE_ALLOCATION"
                         ),
                         (
                             "cycle_aging_exposure_test_channels",
-                            "CYCLE_EXPOSURE_CHANNEL_ALLOCATION_DIFFERS"
+                            "CYCLE_EXPOSURE_CHANNEL_ALLOCATION"
                         ),
                         (
                             "cycle_aging_exposure_climate_chambers",
-                            "CYCLE_EXPOSURE_CHAMBER_ALLOCATION_DIFFERS"
+                            "CYCLE_EXPOSURE_CHAMBER_ALLOCATION"
                         ),
                         (
                             "cycle_aging_exposure_climate_chamber_positions",
-                            "CYCLE_EXPOSURE_CHAMBER_POSITION_DIFFERS"
+                            "CYCLE_EXPOSURE_CHAMBER_POSITION"
                         )
                     ]
                 )
@@ -4334,25 +5049,21 @@ def build_estimand_support(condition_records: list[dict], treatment_support_reco
                 )
             )
 
-            recorded_equipment_differences = [
-                relationship_record[
-                    "difference_code"
-                ]
+            recorded_equipment_restrictions = [
+                relationship_record["restriction_code"]
                 for relationship_record in (
                     equipment_allocation_relationships
                 )
-                if relationship_record[
-                    "relationship"
-                ]
-                != "identical_or_shared"
+                if relationship_record["restriction_code"]
+                is not None
             ]
 
             # Confirming that every equipment restriction is represented once
             if len(
-                recorded_equipment_differences
+                recorded_equipment_restrictions
             ) != len(
                 set(
-                    recorded_equipment_differences
+                    recorded_equipment_restrictions
                 )
             ):
                 raise RuntimeError(
@@ -4360,32 +5071,13 @@ def build_estimand_support(condition_records: list[dict], treatment_support_reco
                     f"{first_condition['condition_protocol_identity']} : {second_condition['condition_protocol_identity']}"
                 )
 
-            if aging_mode == "calendar_aging":
-                exposure_context_available = False
-
-            else:
-                cycle_exposure_fields = [
-                    "cycle_aging_exposure_measurement_devices",
-                    "cycle_aging_exposure_test_channels",
-                    "cycle_aging_exposure_climate_chambers",
-                    "cycle_aging_exposure_climate_chamber_positions"
-                ]
-
-                exposure_context_available = all(
-                    bool(
-                        first_support[
-                            equipment_field
-                        ]
-                    )
-                    and bool(
-                        second_support[
-                            equipment_field
-                        ]
-                    )
-                    for equipment_field in (
-                        cycle_exposure_fields
-                    )
+            exposure_context_status = (
+                classify_exposure_context(
+                    aging_mode = aging_mode,
+                    first_support = first_support,
+                    second_support = second_support
                 )
+            )
 
             for outcome_name in OUTCOME_DEFINITIONS:
                 for cohort_name in [
@@ -4654,7 +5346,7 @@ def build_estimand_support(condition_records: list[dict], treatment_support_reco
 
                         if len(changed_treatments) != 1:
                             restriction_reasons.append(
-                                "JOINT_CONDITION_CONTRAST_NOT_AN_ISOLATED_TREATMENT_EFFECT"
+                                "MULTIPLE_ASSIGNED_TREATMENTS_DIFFER"
                             )
 
                         if context_differences:
@@ -4668,19 +5360,34 @@ def build_estimand_support(condition_records: list[dict], treatment_support_reco
                             )
 
                         restriction_reasons.extend(
-                            recorded_equipment_differences
+                            recorded_equipment_restrictions
                         )
 
-                        if not exposure_context_available:
-                            if aging_mode == "calendar_aging":
-                                restriction_reasons.append(
-                                    "CALENDAR_AGING_EXPOSURE_EQUIPMENT_UNAVAILABLE"
-                                )
+                        exposure_restriction_codes = {
+                            "unavailable_from_measurement_files": (
+                                "CALENDAR_AGING_EXPOSURE_EQUIPMENT_UNAVAILABLE"
+                            ),
+                            "unavailable": (
+                                "CYCLE_AGING_EXPOSURE_EQUIPMENT_UNAVAILABLE"
+                            ),
+                            "incomplete": (
+                                "CYCLE_AGING_EXPOSURE_EQUIPMENT_INCOMPLETE"
+                            ),
+                            "identity_conflicted": (
+                                "CYCLE_AGING_EXPOSURE_EQUIPMENT_IDENTITY_CONFLICTED"
+                            )
+                        }
 
-                            else:
-                                restriction_reasons.append(
-                                    "CYCLE_AGING_EXPOSURE_EQUIPMENT_INCOMPLETE"
-                                )
+                        exposure_restriction = (
+                            exposure_restriction_codes.get(
+                                exposure_context_status
+                            )
+                        )
+
+                        if exposure_restriction is not None:
+                            restriction_reasons.append(
+                                exposure_restriction
+                            )
 
                         if (
                             minimum_eligible_cell_count
@@ -4727,8 +5434,8 @@ def build_estimand_support(condition_records: list[dict], treatment_support_reco
                             "horizon_axis": horizon_axis,
                             "changed_treatments": changed_treatments,
                             "context_differences": context_differences,
-                            "recorded_equipment_differences": (
-                                recorded_equipment_differences
+                            "recorded_equipment_restrictions": (
+                                recorded_equipment_restrictions
                             ),
                             "equipment_allocation_relationships": (
                                 equipment_allocation_relationships
@@ -4740,7 +5447,7 @@ def build_estimand_support(condition_records: list[dict], treatment_support_reco
                                 equipment_identity_conflicted_dimension_count
                             ),
                             "equipment_allocation_support_role": (
-                                "descriptive_restriction_not_support_veto"
+                                "descriptive_restriction_not_determinative_of_support"
                             ),
                             "equipment_adjustment_authorization": (
                                 "not_authorized_from_aggregated_allocation_history"
@@ -4822,9 +5529,7 @@ def build_estimand_support(condition_records: list[dict], treatment_support_reco
                                 coverage_eligible_observed_horizons
                             ),
                             "exposure_context_status": (
-                                "available"
-                                if exposure_context_available
-                                else "unavailable"
+                                exposure_context_status
                             ),
                             "causal_identification_status": (
                                 "not_established"
@@ -7907,12 +8612,20 @@ def build_design_scopes(records: list[dict]) -> dict[str, list[dict]]:
             stage_name
         ] = stage_records
 
-        for sampling_method in sorted(
+        observed_sampling_methods = sorted(
             {
                 record["sampling_method"]
                 for record in stage_records
             }
-        ):
+        )
+
+        # A stage that contains only one sampling method would otherwise produce a sampling-method scope identical
+        #  to the stage scope. Recording both would duplicate every downstream decision without adding any
+        #  design information.
+        if len(observed_sampling_methods) <= 1:
+            continue
+
+        for sampling_method in observed_sampling_methods:
             scopes[
                 (
                     f"{stage_name}/"
@@ -9486,9 +10199,10 @@ def main() -> None:
         cell_records
     )
 
-    if len(test_point_records) != 71:
+    if len(test_point_records) != EXPECTED_TEST_POINT_COUNT:
         raise RuntimeError(
-            f"Experimental design does not reconcile to 71 unique test points : {len(test_point_records)}"
+            "Experimental design does not reconcile to "
+            f"{EXPECTED_TEST_POINT_COUNT} unique test points : {len(test_point_records)}"
         )
 
     treatment_correlation_records = (
@@ -9499,6 +10213,12 @@ def main() -> None:
 
     equipment_by_cell = build_equipment_inventory(
         audit_result
+    )
+
+    reference_measurement_equipment_by_source_identity = (
+        build_reference_measurement_equipment_by_source_identity(
+            audit_result
+        )
     )
 
     approved_horizon_inventory = (
@@ -9995,7 +10715,10 @@ def main() -> None:
         "baseline_balance": (
             build_baseline_balance_diagnostics(
                 cell_records = cell_records,
-                reference_records = reference_records
+                reference_records = reference_records,
+                reference_measurement_equipment_by_source_identity = (
+                    reference_measurement_equipment_by_source_identity
+                )
             )
         ),
         "treatment_combination_support": (
@@ -10136,9 +10859,9 @@ def main() -> None:
             "publication_interpretation": (
                 "cells_described_as_one_statistical_ensemble"
             ),
-            "project_interpretation": (
-                "supports_initial_electrochemical_comparability_but_does_not_establish_"
-                "cross_stage_degradation_exchangeability"
+            "analysis_interpretation": (
+                "supports_initial_electrochemical_comparability_but_does_not_establish_cross_stage_"
+                "degradation_exchangeability"
             ),
             "source": (
                 "https://doi.org/10.1038/s41597-024-03859-z"
@@ -10253,6 +10976,49 @@ def main() -> None:
             "cross_stage_batch_restriction": (
                 "stage_2_used_a_new_batch_and_stage_cannot_be_separated_from_batch"
             ),
+            "et_derived_baseline_covariates": {
+                "source_table": (
+                    "reference_test_features.csv"
+                ),
+                "join_key": "cell_identity",
+                "equipment_join_field": (
+                    "baseline_source_identity"
+                ),
+                "equipment_join_source": (
+                    "exact_initial_reference_measurement_source_identity"
+                ),
+                "equipment_source": (
+                    "audit_companion_metadata_of_the_exact_initial_reference_measurement"
+                ),
+                "equipment_fields": (
+                    REFERENCE_MEASUREMENT_EQUIPMENT_OUTPUT_FIELDS
+                ),
+                "equipment_representation": (
+                    "canonical_json_sorted_equipment_dictionary"
+                ),
+                "evidence_status_values": [
+                    "validated",
+                    "unavailable",
+                    "identity_conflicted",
+                    "incomplete"
+                ],
+                "equipment_relationship_values": [
+                    "identical",
+                    "overlapping",
+                    "disjoint",
+                    "identity_conflicted",
+                    "partially_evidenced",
+                    "unavailable"
+                ],
+                "fields": [
+                    "mean_capacity_ah",
+                    "uncorrected_dc_internal_resistance_milliohms",
+                    "baseline_voltage_volts"
+                ],
+                "adjustment_status": (
+                    "not_authorized_descriptive_diagnostic_only"
+                )
+            },
             "causal_interpretation": (
                 "not_established"
             ),
@@ -10402,7 +11168,7 @@ def main() -> None:
             ),
             "equipment_allocation_interpretation": {
                 "support_role": (
-                    "descriptive_restriction_not_condition_pair_support_veto"
+                    "descriptive_restriction_not_determinative_of_condition_pair_support"
                 ),
                 "adjustment_status": (
                     "not_authorized_from_aggregated_measurement_history"
@@ -10552,8 +11318,8 @@ def main() -> None:
                 "Exact source equipment labels are preserved without undocumented normalization."
             ),
             (
-                "Randomization and treatment-assignment mechanisms are not documented in the validated inputs or "
-                "primary publication."
+                "Randomization and treatment-assignment mechanisms are not documented in the validated analytical"
+                " inputs or primary publication."
             ),
             (
                 "Structural identifiability is reported separately for the assigned design and each realized "
@@ -10582,7 +11348,7 @@ def main() -> None:
             ),
             (
                 "The publication documents test-point design methods but does not establish cell-to-condition "
-                "randomization in the validated project inputs."
+                "randomization in the validated analytical inputs."
             ),
             (
                 "Sampling method records how test points were selected. It is preserved as design provenance "

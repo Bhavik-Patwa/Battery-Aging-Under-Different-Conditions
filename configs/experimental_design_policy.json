@@ -1,5 +1,5 @@
 {
-  "policy_version": "1.4",
+  "policy_version": "1.5",
   "calendar_exposure_policy": {
     "primary_time_axis": "elapsed_calendar_days",
     "primary_estimand": "whole_assigned_protocol_outcome_difference_at_common_elapsed_calendar_time",
@@ -9,7 +9,7 @@
     "net_storage_exposure_availability": "unavailable",
     "net_storage_exposure_model_authorization": "not_authorized",
     "claim_boundary": "Gross elapsed calendar days support whole-protocol comparisons only. They do not identify time under storage, isolate calendar-aging exposure, or exclude time spent in reference tests and documented pauses.",
-    "rationale": "The agreed calendar estimand uses common observed elapsed-time horizons and reference-test schedule is an assigned protocol factor. Net storage exposure remains a distinct unavailable estimand."
+    "rationale": "The calendar estimand uses common observed elapsed-time horizons, and reference-test schedule is an assigned protocol factor. Net storage exposure remains a distinct unavailable estimand."
   },
   "longitudinal_observation_policy": {
     "support_horizon_requirement": "strictly_positive",
@@ -27,10 +27,11 @@
     "authorized_domain": "observed_condition_protocol_combinations_only",
     "unobserved_joint_treatment_combinations": "not_authorized_by_design_audit",
     "continuous_treatment_interpolation": "requires_separate_model_specific_validation",
-    "one_factor_contrast_structure": "requires_exactly_one_changed_treatment_and_no_disjoint_or_identity_conflicted_equipment_allocation",
+    "one_factor_contrast_structure": "requires_exactly_one_changed_assigned_treatment",
+    "one_factor_condition_comparison_support": "permitted_with_restrictions_when_direct_contrast_support_requirements_are_satisfied",
     "one_factor_contrast_identification": "not_established_assignment_mechanism_undocumented",
     "joint_condition_comparison_support": "permitted_with_restrictions_when_replication_horizon_support_and_context_requirements_are_satisfied",
-    "rationale": "Observed treatment combinations may be compared as joint conditions. A one-factor contrast structure records that only one assigned treatment differs; it does not identify an isolated treatment effect because the assignment mechanism is undocumented."
+    "rationale": "Observed treatment combinations may be compared as joint conditions. Exactly one changed assigned treatment defines a one-factor contrast structure, but does not identify an isolated treatment effect because the assignment mechanism is undocumented. Equipment allocation remains a descriptive restriction rather than a determinant of structural contrast type."
   },
   "support_mode": "within_cell_bracketing_ranges",
   "coverage_rules": {
