@@ -16238,24 +16238,23 @@ def validate_descriptive_modeling_report(report: dict, modeling_policy: dict) ->
     ):
         raise RuntimeError("Descriptive-modeling report is missing a policy-required analysis_registration_status.")
 
-    required_false_fields = {
-        "outcome_magnitude_or_direction_used_for_candidate_selection",
-        "performance_selected_model_declared",
-        "causal_interpretation_authorized",
-        "policy_recommendation_authorized"
+    required_declaration_values = {
+        "outcome_magnitude_or_direction_used_for_candidate_selection": False,
+        "performance_selected_model_declared": False,
+        "causal_interpretation_authorized": False,
+        "policy_recommendation_authorized": False,
+        "calendar_and_cycle_models_separated": True,
+        "primary_and_sensitivity_cohorts_separated": True
     }
 
-    invalid_false_fields = sorted(
+    invalid_declarations = sorted(
         field_name
-        for field_name in required_false_fields
-        if report.get(
-            field_name
-        )
-        is not False
+        for field_name, required_value in required_declaration_values.items()
+        if report.get(field_name) is not required_value
     )
 
-    if invalid_false_fields:
-        raise RuntimeError(f"Descriptive-modeling report contains invalid analytical declarations : {invalid_false_fields}")
+    if invalid_declarations:
+        raise RuntimeError(f"Descriptive-modeling report contains invalid analytical declarations : {invalid_declarations}")
 
     table_manifests = report.get(
         "tables"

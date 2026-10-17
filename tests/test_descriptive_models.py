@@ -6446,6 +6446,66 @@ def test_validate_report_rejects_registration_status_mismatch() -> None:
         validate_descriptive_modeling_report(report, modeling_policy)
 
 
+@pytest.mark.parametrize(
+    "field_name",
+    [
+        "calendar_and_cycle_models_separated",
+        "primary_and_sensitivity_cohorts_separated"
+    ]
+)
+@pytest.mark.parametrize(
+    "invalid_value",
+    [
+        False,
+        None
+    ]
+)
+# Rejecting an invalid required-true separation declaration
+def test_validate_report_rejects_invalid_separation_declaration(field_name: str, invalid_value: object) -> None:
+    modeling_policy = load_test_policy()
+
+    report = {
+        "analysis_registration_status": modeling_policy["reporting"]["analysis_registration_status"],
+        "analysis_registration_rationale": modeling_policy["reporting"]["analysis_registration_rationale"],
+        "analysis_status": "completed",
+        "modeling_policy": modeling_policy,
+        "independent_experimental_unit": "cell",
+        "calendar_and_cycle_models_separated": True,
+        "primary_and_sensitivity_cohorts_separated": True,
+        "outcome_magnitude_or_direction_used_for_candidate_selection": False,
+        "performance_selected_model_declared": False,
+        "causal_interpretation_authorized": False,
+        "policy_recommendation_authorized": False,
+        "estimator_outcomes": {},
+        "template_outcomes": {},
+        "candidate_disposition_counts": {},
+        "reconciliation": {"reconciliation_complete": True},
+        "fitted_result_availability": {
+            "uncertainty": {"completed": 0, "unavailable": 0},
+            "validation": {"completed": 0, "unavailable": 0},
+            "influence": {"completed": 0, "unavailable": 0}
+        },
+        "analytical_handoff": {
+            "analytical_handoff_status": "not_ready_no_validated_contrasts",
+            "candidate_analytical_status_counts": {},
+            "contrast_status_counts": {},
+            "unavailable_estimator_families": []
+        },
+        "tables": {}
+    }
+
+    report[field_name] = invalid_value
+
+    with pytest.raises(
+        RuntimeError,
+        match = "invalid analytical declarations"
+    ):
+        validate_descriptive_modeling_report(
+            report = report,
+            modeling_policy = modeling_policy
+        )
+
+
 # Exercising the complete model-construction and analytical-qualification path
 def test_modeling_pipeline_preserves_training_and_evaluation_contract() -> None:
     modeling_policy = load_test_policy()
