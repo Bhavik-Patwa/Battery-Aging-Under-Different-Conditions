@@ -1,0 +1,1120 @@
+{
+  "policy_version": "1.14",
+  "effective_date": "2026-10-17",
+  "previous_policy_sha256": "3baf1ef23989dcc248aaf8fd35678ebac0820b25ab1bc0f66c50b52c972eae44",
+  "amendment": {
+    "reason": "Restating the declared admissibility order, withdrawing a cross-sectional fitting permission that did not correspond to an authorized analytical path and marking analyses governed by result-informed amendments as exploratory. Candidate assembly, model fitting, uncertainty, validation, contrasts and model comparison are unchanged.",
+    "result_informed": true,
+    "affected_analyses": [
+      "policy_validation",
+      "reporting"
+    ],
+    "complete_rerun_required": true
+  },
+  "analysis_scope": {
+    "independent_unit": "cell_identity",
+    "aging_modes_fitted_separately": true,
+    "dataset_stages_pooled": false,
+    "cohorts_fitted_separately": true,
+    "horizon_axes_fitted_separately": true,
+    "authorized_scope_source": "analytical_scope.csv",
+    "support_region_source": "bracketing_support_regions.csv",
+    "support_membership_source": "bracketing_support_membership.csv",
+    "contrast_authorization_source": "estimand_support.csv",
+    "observed_condition_combinations_only": true,
+    "unobserved_treatment_combinations_permitted": false,
+    "causal_interpretation_permitted": false,
+    "policy_interpretation_permitted": false
+  },
+  "outcomes": {
+    "relative_capacity": {
+      "value_field": "relative_capacity",
+      "primary_eligibility_field": "relative_capacity_primary_eligible",
+      "sensitivity_eligibility_field": "relative_capacity_sensitivity_eligible",
+      "interpretation": "descriptive_associational_outcome"
+    },
+    "relative_dc_internal_resistance": {
+      "value_field": "relative_dc_internal_resistance",
+      "primary_eligibility_field": "relative_dc_internal_resistance_primary_eligible",
+      "sensitivity_eligibility_field": "relative_dc_internal_resistance_sensitivity_eligible",
+      "interpretation": "descriptive_associational_outcome"
+    }
+  },
+  "horizon_axes": {
+    "elapsed_calendar_days": {
+      "unit": "day",
+      "minimum_value_exclusive": 0.0,
+      "interpretation": "whole_protocol_gross_elapsed_calendar_time",
+      "net_storage_exposure_interpretation_permitted": false
+    },
+    "cumulative_full_equivalent_cycles_observed": {
+      "unit": "full_equivalent_cycle",
+      "minimum_value_exclusive": 0.0,
+      "complete_exposure_required": true,
+      "completeness_field": "cumulative_fec_observation_complete",
+      "interpretation": "complete_observed_cumulative_cycle_exposure"
+    }
+  },
+  "candidate_templates": [
+    {
+      "template_name": "linear_common_trajectory",
+      "estimator": "weighted_least_squares",
+      "horizon_basis": "linear",
+      "include_authorized_terms": true,
+      "include_horizon_by_treatment_interactions": false,
+      "cell_random_intercept": false
+    },
+    {
+      "template_name": "linear_differential_trajectory",
+      "estimator": "weighted_least_squares",
+      "horizon_basis": "linear",
+      "include_authorized_terms": true,
+      "include_horizon_by_treatment_interactions": true,
+      "cell_random_intercept": false
+    },
+    {
+      "template_name": "restricted_cubic_spline_common_trajectory",
+      "estimator": "weighted_least_squares",
+      "horizon_basis": "restricted_cubic_spline",
+      "include_authorized_terms": true,
+      "include_horizon_by_treatment_interactions": false,
+      "cell_random_intercept": false
+    },
+    {
+      "template_name": "restricted_cubic_spline_differential_trajectory",
+      "estimator": "weighted_least_squares",
+      "horizon_basis": "restricted_cubic_spline",
+      "include_authorized_terms": true,
+      "include_horizon_by_treatment_interactions": true,
+      "cell_random_intercept": false
+    },
+    {
+      "template_name": "mixed_linear_common_trajectory",
+      "estimator": "linear_mixed_effects",
+      "horizon_basis": "linear",
+      "include_authorized_terms": true,
+      "include_horizon_by_treatment_interactions": false,
+      "cell_random_intercept": true
+    },
+    {
+      "template_name": "mixed_linear_differential_trajectory",
+      "estimator": "linear_mixed_effects",
+      "horizon_basis": "linear",
+      "include_authorized_terms": true,
+      "include_horizon_by_treatment_interactions": true,
+      "cell_random_intercept": true
+    }
+  ],
+  "candidate_assembly": {
+    "candidate_key_fields": [
+      "support_region_identity",
+      "design_scope",
+      "sampling_design_scope",
+      "aging_mode",
+      "outcome",
+      "cohort",
+      "horizon_axis",
+      "specification",
+      "context_family"
+    ],
+    "authorized_term_types": [
+      "main_effect",
+      "pairwise_interaction",
+      "target_treatment"
+    ],
+    "derived_term_types": [
+      "intercept",
+      "horizon_basis",
+      "horizon_by_treatment_interaction"
+    ],
+    "context_terms_limited_to_permitted_adjustment_variables": true,
+    "required_terms_may_be_removed": false,
+    "unauthorized_terms_may_be_added": false,
+    "duplicate_observations_within_candidate_permitted": false,
+    "source_term_authorization": {
+      "classification_fields": [
+        "question_classification",
+        "authorization_status"
+      ],
+      "question_classification_precedence": [
+        "supported_with_restrictions",
+        "sensitivity_only"
+      ],
+      "authorization_by_question_classification": {
+        "supported_with_restrictions": "permitted_for_model_evaluation_with_restrictions",
+        "sensitivity_only": "permitted_for_model_evaluation_sensitivity_only"
+      },
+      "candidate_aggregation": "most_restrictive_selected_source_term_classification",
+      "source_term_classification_preserved": true,
+      "derived_terms_inherit_source_classification": false
+    },
+    "model_matrix_column_order": [
+      "intercept",
+      "horizon_basis_in_declared_basis_order",
+      "authorized_source_terms_sorted_by_term_type_then_term_name",
+      "context_terms_sorted_by_field_name_then_encoded_level",
+      "horizon_interactions_in_horizon_basis_order_then_source_term_order"
+    ],
+    "candidate_observation_order": [
+      "cell_identity",
+      "horizon",
+      "source_identity"
+    ],
+    "source_term_sort_order": [
+      "main_effect",
+      "target_treatment",
+      "pairwise_interaction"
+    ],
+    "model_matrix_column_names_unique": true,
+    "model_matrix_column_collision_action": "fail_run",
+    "equivalent_fit_reuse": {
+      "permitted": true,
+      "requirements": [
+        "identical_ordered_observation_identities",
+        "identical_outcome",
+        "identical_cohort",
+        "identical_horizon_axis",
+        "identical_ordered_model_matrix_terms",
+        "identical_model_matrix_values",
+        "identical_outcome_values",
+        "identical_weights",
+        "identical_estimator",
+        "identical_estimator_configuration"
+      ],
+      "fit_identity_method": "sha256_of_canonical_json",
+      "canonical_owner": "lexicographically_first_candidate_identity",
+      "fit_executed_once_per_fit_identity": true,
+      "candidate_specific_results_retained": true,
+      "candidate_specific_results_reference_fit_identity": true,
+      "evaluation_domains_remain_separate": true,
+      "support_region_results_may_be_merged": false
+    }
+  },
+  "candidate_generation": {
+    "source_row_grouping": "unique_candidate_key_fields",
+    "inventory_scope": "every_unique_authorized_source_row_group_and_candidate_template",
+    "fit_selection_unit_fields": [
+      "design_scope",
+      "sampling_design_scope",
+      "aging_mode",
+      "outcome",
+      "cohort",
+      "horizon_axis",
+      "specification",
+      "context_family"
+    ],
+    "support_anchor_selection": {
+      "coverage_anchor": {
+        "purpose": "maximize_simultaneous_condition_protocol_support",
+        "ordering": [
+          "condition_protocol_count_descending",
+          "independent_cell_count_descending",
+          "support_interval_width_descending",
+          "analytical_observation_count_descending",
+          "support_region_identity_ascending"
+        ]
+      },
+      "duration_anchor": {
+        "purpose": "maximize_supported_longitudinal_extent",
+        "ordering": [
+          "support_interval_width_descending",
+          "condition_protocol_count_descending",
+          "independent_cell_count_descending",
+          "analytical_observation_count_descending",
+          "support_region_identity_ascending"
+        ]
+      },
+      "duplicate_anchor_resolution": "retain_once",
+      "outcome_values_used": false
+    },
+    "template_application": {
+      "coverage_anchor": [
+        "linear_common_trajectory",
+        "linear_differential_trajectory",
+        "restricted_cubic_spline_common_trajectory",
+        "restricted_cubic_spline_differential_trajectory",
+        "mixed_linear_common_trajectory",
+        "mixed_linear_differential_trajectory"
+      ],
+      "duration_anchor_when_distinct": [
+        "linear_common_trajectory",
+        "restricted_cubic_spline_common_trajectory",
+        "mixed_linear_common_trajectory"
+      ]
+    },
+    "unselected_source_group_disposition": "not_selected",
+    "unselected_source_group_reason_code": "NON_ANCHOR_SUPPORT_REGION",
+    "unselected_template_disposition": "not_selected",
+    "unselected_template_reason_code": "TEMPLATE_NOT_ASSIGNED_TO_SUPPORT_ANCHOR",
+    "candidate_identity_fields": [
+      "support_region_identity",
+      "design_scope",
+      "sampling_design_scope",
+      "aging_mode",
+      "outcome",
+      "cohort",
+      "horizon_axis",
+      "specification",
+      "context_family",
+      "template_name"
+    ],
+    "candidate_identity_method": "sha256_of_canonical_json",
+    "authorized_source_terms": "sorted_unique_term_name_and_term_type_pairs_from_the_source_row_group",
+    "authorized_terms_selected_in_every_fitted_template": true,
+    "candidate_term_dispositions": [
+      "selected",
+      "not_selected",
+      "required_but_not_authorized"
+    ],
+    "hierarchy_component_matching": "exact_encoded_term_name",
+    "missing_hierarchy_component_disposition": "required_but_not_authorized",
+    "missing_hierarchy_candidate_status": "inadmissible",
+    "missing_hierarchy_reason_code": "REQUIRED_LOWER_ORDER_TERM_NOT_AUTHORIZED",
+    "context_terms_selected_when_context_family_requires_them": true,
+    "linear_horizon_term_selected_in_linear_templates": true,
+    "restricted_cubic_spline_terms_selected_in_spline_templates": true,
+    "horizon_interactions_selected_only_when_template_requests_them": true,
+    "horizon_interactions_not_selected_reason": "template_defines_common_trajectory",
+    "unrequested_derived_terms_not_selected": true,
+    "spline_requirement_failure_status": "inadmissible",
+    "no_eligible_observations_status": "not_assembled",
+    "source_integrity_failure_action": "fail_run",
+    "fit_statuses": [
+      "not_attempted",
+      "completed",
+      "failed"
+    ],
+    "admissibility_statuses": [
+      "pending",
+      "admissible",
+      "inadmissible",
+      "not_assembled",
+      "not_selected"
+    ],
+    "uncertainty_statuses": [
+      "not_attempted",
+      "completed",
+      "unavailable"
+    ],
+    "validation_statuses": [
+      "not_attempted",
+      "completed",
+      "unavailable"
+    ],
+    "influence_statuses": [
+      "not_attempted",
+      "completed",
+      "unavailable"
+    ]
+  },
+  "observation_assembly": {
+    "membership_join_key": [
+      "support_region_identity",
+      "cell_identity"
+    ],
+    "observation_identity_field": "source_identity",
+    "required_unique_observation_key": [
+      "candidate_identity",
+      "source_identity"
+    ],
+    "candidate_source_universe": "all_reference_test_records_for_support_region_member_cells_matching_the_candidate_aging_mode_dataset_stage_sampling_scope_outcome_cohort_and_horizon_axis",
+    "baseline_horizon_included": false,
+    "missing_outcomes_included": false,
+    "ineligible_observations_included": false,
+    "fec_incomplete_observations_included": false,
+    "observations_outside_evaluation_interval": "included_in_model_assembly_for_support_region_member_cells_and_flagged_outside_evaluation_domain",
+    "predictions_outside_evaluation_interval": false,
+    "extrapolation_permitted": false,
+    "duplicate_source_identity_action": "fail_run",
+    "conflicting_cell_metadata_action": "fail_run"
+  },
+  "observation_accounting": {
+    "accounting_unit": "candidate_source_record",
+    "statuses_are_mutually_exclusive": true,
+    "status_evaluation_order": [
+      "missing_horizon",
+      "nonpositive_horizon",
+      "missing_outcome",
+      "cohort_ineligible",
+      "incomplete_cumulative_fec",
+      "included"
+    ],
+    "evaluation_interval_accounting": {
+      "applies_to_included_observations": true,
+      "inside_evaluation_interval_flag_required": true,
+      "inside_evaluation_interval_count_required": true,
+      "outside_evaluation_interval_count_required": true,
+      "inside_and_outside_counts_must_equal_included_record_count": true
+    },
+    "status_definitions": {
+      "missing_horizon": "The required horizon value is missing.",
+      "nonpositive_horizon": "The required horizon value is less than or equal to the configured exclusive minimum.",
+      "missing_outcome": "The required outcome value is missing.",
+      "cohort_ineligible": "The required cohort eligibility field is not exactly true.",
+      "incomplete_cumulative_fec": "The cumulative FEC horizon is requested and cumulative_fec_observation_complete is not exactly true.",
+      "included": "The record satisfies every candidate observation requirement."
+    },
+    "invalid_numeric_text_action": "fail_run",
+    "non_finite_numeric_value_action": "fail_run",
+    "candidate_source_record_count_required": true,
+    "included_record_count_required": true,
+    "excluded_record_count_required": true,
+    "status_counts_must_reconcile_to_source_record_count": true,
+    "validation_interval_exclusions_recorded_separately": true,
+    "summary_interval_exclusions_recorded_separately": true
+  },
+  "baseline_adjustment": {
+    "baseline_characteristics_used_as_model_covariates": false,
+    "baseline_characteristics_used_for_candidate_selection": false,
+    "baseline_characteristics_used_for_model_selection": false,
+    "authorized_role": "descriptive_reporting_only",
+    "exception_permitted": false,
+    "rationale": "No model-specific baseline adjustment is authorized by the analytical scope."
+  },
+  "encoding": {
+    "intercept_included": true,
+    "numerical_treatments": "centered_and_scaled",
+    "horizon": "centered_and_scaled",
+    "centering_population": "unique_cells_with_equal_cell_weight",
+    "scaling_standard_deviation": "population_standard_deviation",
+    "zero_variance_status": "inadmissible",
+    "categorical_encoding": "reference_coded",
+    "categorical_reference_level": "lexicographically_first_observed_level",
+    "interaction_construction": "product_of_encoded_lower_order_columns",
+    "hierarchy_required": true,
+    "hierarchy_definition": "Every selected interaction term requires each exact lower-order encoded component to be authorized and selected in the same candidate.",
+    "hierarchy_completion_by_adding_unauthorized_terms_permitted": false,
+    "hierarchy_completion_by_removing_authorized_interactions_permitted": false,
+    "hierarchy_failure_action": "record_inadmissible_without_fitting",
+    "novel_category_prediction_permitted": false,
+    "source_term_parsing": {
+      "numerical_main_effect": "field_name",
+      "categorical_indicator": "field_name=level",
+      "pairwise_interaction": "first_encoded_term:second_encoded_term"
+    },
+    "context_category_source": "observed_training_values",
+    "context_reference_level": "lexicographically_first_observed_level",
+    "context_columns": "one_indicator_for_every_non_reference_observed_level",
+    "missing_category_action": "not_assembled",
+    "unknown_prediction_category_action": "validation_unavailable",
+    "scaling_parameters_computed_from_training_data_only": true,
+    "scaling_parameters_reused_without_recalculation_for_validation_predictions": true
+  },
+  "restricted_cubic_spline": {
+    "knot_count": 3,
+    "knot_probabilities": [
+      0.0,
+      0.5,
+      1.0
+    ],
+    "quantile_weighting": "equal_total_weight_per_cell",
+    "weighted_quantile_algorithm": "sort_by_horizon_then_cell_identity_and_select_the_first_value_whose_normalized_cumulative_weight_is_greater_than_or_equal_to_the_requested_probability",
+    "observation_weight_for_knot_selection": "inverse_number_of_training_observations_for_the_observation_cell",
+    "knots_computed_from": "training_observations_only",
+    "boundary_knots": "training_minimum_and_maximum",
+    "basis": "three_knot_natural_restricted_cubic",
+    "basis_columns": [
+      "standardized_horizon",
+      "restricted_cubic_nonlinear_component"
+    ],
+    "nonlinear_component_formula": "((max(x-k1,0)^3-max(x-k2,0)^3*(k3-k1)/(k3-k2)+max(x-k3,0)^3*(k2-k1)/(k3-k2))/(k3-k1)^3)",
+    "formula_symbols": {
+      "x": "unstandardized_horizon",
+      "k1": "lower_boundary_knot",
+      "k2": "median_knot",
+      "k3": "upper_boundary_knot"
+    },
+    "strictly_increasing_knots_required": true,
+    "minimum_unique_horizon_count": 4,
+    "minimum_non_boundary_unique_horizon_count": 2,
+    "prediction_outside_training_boundary_knots": false
+  },
+  "horizon_interactions": {
+    "eligible_source_term_types": [
+      "main_effect",
+      "pairwise_interaction",
+      "target_treatment"
+    ],
+    "context_terms_interacted_with_horizon": false,
+    "all_eligible_authorized_terms_required": true,
+    "partial_interaction_removal_permitted": false
+  },
+  "admissibility": {
+    "minimum_independent_cells": 6,
+    "minimum_residual_independent_cell_degrees_of_freedom": 4,
+    "full_column_rank_required": true,
+    "rank_method": "singular_value_decomposition",
+    "rank_tolerance": "maximum_matrix_dimension_times_machine_epsilon_times_largest_singular_value",
+    "maximum_effective_condition_number": 67108864.0,
+    "condition_number_basis": "largest_singular_value_divided_by_smallest_retained_singular_value",
+    "required_condition_protocol_count": 2,
+    "required_outcome_variation": true,
+    "complete_interaction_hierarchy_required": true,
+    "interaction_hierarchy_failure_status": "inadmissible",
+    "interaction_hierarchy_failure_reason_code": "REQUIRED_LOWER_ORDER_TERM_NOT_AUTHORIZED",
+    "failed_admissibility_action": "record_inadmissible_without_fitting",
+    "term_removal_to_obtain_admissibility_permitted": false,
+    "outcome_variation_rule": "maximum_outcome_strictly_greater_than_minimum_outcome",
+    "finite_matrix_required": true,
+    "finite_outcome_required": true,
+    "finite_weight_required": true,
+    "positive_weight_required": true,
+    "mixed_model_random_effect_variance_threshold_interpretation": "absolute_variance_on_the_fitted_outcome_scale",
+    "admissibility_order": [
+      "assembly_complete",
+      "complete_interaction_hierarchy",
+      "spline_requirements",
+      "longitudinal_structure_requirements",
+      "minimum_condition_protocol_count",
+      "minimum_independent_cells",
+      "outcome_variation",
+      "finite_values",
+      "positive_weights",
+      "full_column_rank",
+      "residual_independent_cell_degrees_of_freedom",
+      "effective_condition_number"
+    ],
+    "longitudinal_structure": {
+      "repeated_cell_definition": "cell_with_at_least_two_distinct_positive_horizons_in_the_assembled_model_data",
+      "minimum_repeated_cells_for_random_intercept": 2,
+      "minimum_repeated_cells_for_random_intercept_rationale": "At least two independently replicated groups with within-group horizon replication are required to distinguish a random-intercept component from purely observation-level variation.",
+      "differential_trajectory_minimum_unique_horizons_per_condition": 2,
+      "differential_trajectory_minimum_repeated_cells_per_condition": 2,
+      "differential_trajectory_rationale": "A condition-specific horizon trajectory requires horizon variation and independently replicated within-cell change in every represented condition.",
+      "common_trajectory_minimum_repeated_cells": 2,
+      "common_trajectory_rationale": "A longitudinal trajectory claim requires independently replicated within-cell horizon variation.",
+      "purely_cross_sectional_model_fitting_permitted": false,
+      "cross_sectional_trajectory_interpretation_permitted": false,
+      "cross_sectional_contrast_interpolation_permitted": false
+    }
+  },
+  "estimation": {
+    "weighted_least_squares": {
+      "observation_weight": "inverse_cell_observation_count",
+      "weight_normalization": "mean_observation_weight_equals_one",
+      "coefficient_solver": "singular_value_decomposition",
+      "regularization": "none",
+      "cell_contribution": "each_cell_has_equal_total_regression_weight"
+    },
+    "linear_mixed_effects": {
+      "distribution": "gaussian",
+      "fixed_effects": "candidate_model_matrix",
+      "grouping_field": "cell_identity",
+      "random_effects": [
+        "intercept"
+      ],
+      "random_slope": false,
+      "observation_weights_used": false,
+      "cell_contribution": "one_independent_group_likelihood_per_cell_with_all_within_cell_observations_entering_that_group_likelihood",
+      "estimation_method": "restricted_maximum_likelihood",
+      "optimizer_sequence": [
+        "lbfgs",
+        "bfgs"
+      ],
+      "maximum_iterations": 1000,
+      "convergence_required": true,
+      "convergence_warning_action": "fit_failed",
+      "non_convergence_action": "fit_failed",
+      "singular_random_effect_tolerance": 1e-10,
+      "singular_random_effect_rule": "estimated_random_intercept_variance_less_than_or_equal_to_tolerance",
+      "singular_random_effect_action": "fit_failed",
+      "non_finite_parameter_action": "fit_failed",
+      "non_finite_covariance_action": "fit_failed",
+      "failed_fit_action": "record_failed_without_specification_change",
+      "optimizer_failure_messages_recorded": true
+    }
+  },
+  "uncertainty": {
+    "confidence_level": 0.95,
+    "coefficient_covariance": "delete_one_cell_jackknife",
+    "contrast_covariance": "delete_one_cell_jackknife",
+    "jackknife_unit": "cell_identity",
+    "all_deletion_refits_required": true,
+    "deleted_refit_model_columns": "identical_to_full_data_model_columns",
+    "deleted_refit_numerical_centering": "reuse_full_data_values",
+    "deleted_refit_numerical_scaling": "reuse_full_data_values",
+    "deleted_refit_category_levels": "reuse_full_data_values",
+    "deleted_refit_category_reference_levels": "reuse_full_data_values",
+    "deleted_refit_spline_knots": "reuse_full_data_values",
+    "deleted_refit_interaction_definitions": "reuse_full_data_values",
+    "deleted_refit_required_checks": [
+      "remaining_cells_present",
+      "finite_model_matrix",
+      "finite_outcome",
+      "finite_positive_weights",
+      "full_column_rank",
+      "effective_condition_number_within_limit",
+      "estimator_convergence",
+      "non_singular_random_effect_variance_for_mixed_models"
+    ],
+    "deleted_refit_checks_not_reapplied": [
+      "minimum_independent_cells",
+      "minimum_residual_independent_cell_degrees_of_freedom",
+      "minimum_condition_protocol_count",
+      "minimum_unique_horizon_count",
+      "minimum_non_boundary_unique_horizon_count"
+    ],
+    "failed_deletion_refit_action": "uncertainty_unavailable",
+    "reference_distribution": "student_t",
+    "reference_degrees_of_freedom": "independent_cell_count_minus_one",
+    "confidence_interval_type": "two_sided",
+    "confidence_intervals_are_prediction_intervals": false,
+    "jackknife_covariance_formula": "sum_over_cells_of_outer_product_of_deleted_estimate_minus_mean_deleted_estimate_multiplied_by_independent_cell_count_minus_one_divided_by_independent_cell_count",
+    "jackknife_center": "mean_delete_one_cell_estimate",
+    "reported_point_estimate": "full_data_estimate",
+    "coefficient_standard_error": "square_root_of_jackknife_covariance_diagonal",
+    "contrast_standard_error": "square_root_of_contrast_vector_times_jackknife_covariance_times_contrast_vector_transpose",
+    "deleted_refit_weight_calculation": {
+      "weighted_least_squares": "recompute_inverse_cell_observation_count_weights_from_the_remaining_observations_and_renormalize_to_mean_one",
+      "linear_mixed_effects": "not_applicable"
+    },
+    "deleted_refit_outcome_values": "remaining_full_data_outcome_values_without_modification",
+    "negative_covariance_diagonal_action": "uncertainty_unavailable"
+  },
+  "validation": {
+    "grouping_field": "cell_identity",
+    "cell_leakage_permitted": false,
+    "maximum_fold_count": 3,
+    "fold_count": "minimum_of_maximum_fold_count_and_smallest_condition_cell_count",
+    "minimum_fold_count": 2,
+    "condition_protocol_representation_required_in_every_training_fold": true,
+    "condition_protocol_representation_required_in_every_test_fold": true,
+    "cell_ordering": "sha256_of_condition_protocol_identity_and_cell_identity",
+    "randomized_assignment": false,
+    "fold_assignment": "condition_stratified_round_robin",
+    "folds_shared_across_candidate_templates": true,
+    "training_fold_admissibility_required": true,
+    "held_out_prediction_random_effect": "zero",
+    "held_out_horizon_requirement": "within_training_horizon_range_for_same_condition_protocol",
+    "invalid_fold_action": "validation_unavailable",
+    "outcome_dependent_model_selection": false,
+    "nested_validation_required": false,
+    "performance_selected_winner_permitted": false,
+    "cell_hash_payload": [
+      "condition_protocol_identity",
+      "cell_identity"
+    ],
+    "cell_hash_encoding": "utf-8",
+    "cell_hash_method": "sha256_of_canonical_json",
+    "round_robin_start_index": 0,
+    "condition_iteration_order": "lexicographical",
+    "cell_iteration_order": "ascending_cell_hash_then_cell_identity",
+    "test_fold_index": "zero_based_round_robin_index",
+    "training_observations": "all_candidate_observations_not_assigned_to_the_test_fold",
+    "held_out_condition_horizon_minimum": "minimum_training_horizon_within_the_same_condition_protocol",
+    "held_out_condition_horizon_maximum": "maximum_training_horizon_within_the_same_condition_protocol",
+    "partially_valid_fold_permitted": false,
+    "training_fold_encoding": "computed_from_training_observations_only",
+    "training_fold_spline_knots": "computed_from_training_observations_only",
+    "training_fold_uncertainty": "estimator_specific_fixed_effect_covariance",
+    "training_fold_uncertainty_encoding": "training_fold_encoding",
+    "training_fold_fixed_effect_covariance": {
+      "weighted_least_squares": {
+        "method": "delete_one_training_cell_jackknife",
+        "deletion_unit": "cell_identity",
+        "encoding": "retain_training_fold_encoding_columns_scaling_and_spline_knots",
+        "weights": "recalculate_equal_cell_weights_after_each_training_cell_deletion",
+        "all_deletion_refits_required": true,
+        "failed_deletion_action": "validation_interval_unavailable"
+      },
+      "linear_mixed_effects": {
+        "method": "model_based_fixed_effect_covariance",
+        "formula": "fixed_effect_block_of_the_inverse_observed_information_matrix_returned_by_the_fitted_model",
+        "fixed_effect_block_dimension": "training_fixed_effect_column_count"
+      },
+      "symmetry_requirement": "covariance_equals_covariance_transpose_within_absolute_tolerance",
+      "symmetry_absolute_tolerance": 1e-10,
+      "finite_covariance_required": true,
+      "negative_diagonal_tolerance": 1e-12,
+      "materially_negative_diagonal_action": "validation_interval_unavailable",
+      "within_tolerance_negative_diagonal_action": "replace_with_zero"
+    },
+    "test_fold_information_used_during_training": false,
+    "validation_prediction_interval_covariance": "training_fold_fixed_effect_covariance",
+    "validation_prediction_interval_observation_variance": "training_fold_estimate",
+    "fold_sharing_key_fields": [
+      "support_region_identity",
+      "design_scope",
+      "sampling_design_scope",
+      "aging_mode",
+      "outcome",
+      "cohort",
+      "horizon_axis",
+      "specification",
+      "context_family"
+    ],
+    "fold_sharing_excludes": [
+      "template_name"
+    ],
+    "training_fold_weight_calculation": {
+      "weighted_least_squares": "inverse_training_cell_observation_count_renormalized_to_mean_one",
+      "linear_mixed_effects": "unweighted_group_likelihood"
+    },
+    "validation_evaluation_interval_source": "candidate_support_region",
+    "validation_evaluation_interval_required": true,
+    "validation_interval_boundary_fields": [
+      "support_interval_minimum",
+      "support_interval_maximum",
+      "support_interval_lower_inclusive",
+      "support_interval_upper_inclusive"
+    ],
+    "test_observations": "candidate_observations_assigned_to_the_test_fold_whose_horizons_are_inside_the_candidate_support_region",
+    "test_observations_outside_support_region": "excluded_from_validation_and_recorded_in_observation_accounting",
+    "training_observations_outside_support_region": "included_for_support_region_member_cells_when_all_other_observation_requirements_are_satisfied",
+    "complete_out_of_fold_prediction_population": "every_test_observation_inside_the_candidate_support_region_and_the_same_condition_training_horizon_range",
+    "unavailable_interval_covariance_action": "retain_point_predictions_and_point_prediction_metrics_but_mark_interval_predictions_and_interval_metrics_unavailable"
+  },
+  "validation_metrics": {
+    "cell_weighting": "equal",
+    "primary_metrics": [
+      "mean_absolute_error",
+      "root_mean_squared_error"
+    ],
+    "secondary_metrics": [
+      "mean_error",
+      "predictive_r_squared",
+      "prediction_interval_coverage",
+      "mean_prediction_interval_width"
+    ],
+    "mean_absolute_error": "mean_over_cells_of_mean_over_cell_observations_of_absolute_error",
+    "root_mean_squared_error": "square_root_of_mean_over_cells_of_mean_over_cell_observations_of_squared_error",
+    "mean_error": "mean_over_cells_of_mean_over_cell_observations_of_prediction_minus_observation",
+    "prediction_interval_coverage": "mean_over_cells_of_mean_over_cell_observations_of_indicator_that_observed_outcome_is_greater_than_or_equal_to_interval_lower_bound_and_less_than_or_equal_to_interval_upper_bound",
+    "mean_prediction_interval_width": "mean_over_cells_of_mean_over_cell_observations_of_interval_upper_bound_minus_interval_lower_bound",
+    "interval_metric_requirement": "complete_available_prediction_intervals_for_every_valid_out_of_fold_prediction",
+    "unavailable_interval_metric_action": "serialize_interval_metric_as_missing_with_explicit_status",
+    "zero_total_variation_status": "unavailable",
+    "point_metrics_require_complete_out_of_fold_predictions": true,
+    "interval_metrics_require_complete_out_of_fold_intervals": true,
+    "cell_weight_for_metric_aggregation": "one_divided_by_number_of_distinct_test_cells",
+    "observation_weight_within_cell": "one_divided_by_number_of_valid_test_observations_for_that_cell",
+    "equal_cell_weighted_observed_mean": "mean_over_cells_of_mean_observed_outcome_within_cell",
+    "predictive_r_squared_numerator": "mean_over_cells_of_mean_within_cell_squared_prediction_error",
+    "predictive_r_squared_denominator": "mean_over_cells_of_mean_within_cell_squared_deviation_from_equal_cell_weighted_observed_mean",
+    "metric_non_finite_action": "validation_unavailable"
+  },
+  "prediction_intervals": {
+    "confidence_level": 0.95,
+    "target": "new_observation_from_a_new_cell",
+    "fixed_effect_variance": "prediction_row_times_training_fold_fixed_effect_covariance_times_prediction_row_transpose",
+    "weighted_least_squares_observation_variance": "independent_cell_degrees_of_freedom_correction_times_mean_over_cells_of_mean_within_cell_squared_residual",
+    "weighted_least_squares_degrees_of_freedom_correction": "independent_cell_count_divided_by_independent_cell_count_minus_matrix_rank",
+    "mixed_effects_observation_variance": "estimated_random_intercept_variance_plus_estimated_residual_variance",
+    "total_prediction_variance": "fixed_effect_variance_plus_observation_variance",
+    "interval_formula": "prediction_plus_or_minus_student_t_quantile_times_square_root_of_total_prediction_variance",
+    "reference_distribution": "student_t",
+    "reference_degrees_of_freedom": "independent_cell_count_minus_one",
+    "held_out_cell_random_effect_used": false,
+    "negative_variance_action": "prediction_interval_unavailable",
+    "non_finite_variance_action": "prediction_interval_unavailable",
+    "distinguished_from_confidence_interval": true,
+    "full_data_prediction_interval_covariance_source": "full_data_delete_one_cell_jackknife",
+    "validation_prediction_interval_covariance_source": "weighted_least_squares_delete_one_training_cell_jackknife_or_linear_mixed_effects_model_based_fixed_effect_covariance",
+    "validation_prediction_interval_variance_source": "training_fold_only",
+    "test_observations_used_to_construct_interval": false
+  },
+  "contrast_evaluation": {
+    "authorization_required": true,
+    "permitted_support_classifications": [
+      "supported_with_restrictions",
+      "sensitivity_only"
+    ],
+    "decision_identity_fields": [
+      "decision_scope",
+      "first_condition_protocol_identity",
+      "second_condition_protocol_identity",
+      "outcome",
+      "cohort",
+      "horizon_axis"
+    ],
+    "decision_identity_method": "sha256_of_canonical_json",
+    "condition_order_preserved_from_authorization_record": true,
+    "evaluation_horizons": "sorted_union_of_eligible_observed_horizons_from_the_compared_conditions_within_the_authorized_pairwise_range_and_model_support_region",
+    "model_based_interpolation_label_required": true,
+    "point_selection_using_outcome_values_permitted": false,
+    "prediction_for_unobserved_condition_combination_permitted": false,
+    "contrast_direction": "second_condition_minus_first_condition",
+    "causal_label_permitted": false,
+    "context_evaluation": {
+      "no_additional_context": {
+        "contrast_status": "permitted_when_all_other_requirements_are_satisfied"
+      },
+      "laboratory": {
+        "shared_observed_laboratory_required": true,
+        "evaluation_laboratory": "the_identical_observed_laboratory_of_both_compared_conditions",
+        "different_observed_laboratories_status": "unavailable",
+        "different_observed_laboratories_reason_code": "NO_SHARED_OBSERVED_LABORATORY",
+        "prediction_at_unobserved_condition_laboratory_combination_permitted": false,
+        "laboratory_marginalization_permitted": false
+      }
+    },
+    "mixed_model_contrast_random_effect": "zero",
+    "contrast_interval_type": "confidence_interval_for_model_expected_outcome_difference",
+    "contrast_prediction_interval_reported": false,
+    "unavailable_uncertainty_preserves_point_contrast_as_diagnostic_only": true,
+    "unavailable_uncertainty_fields_serialized_as_missing": true,
+    "completed_contrast_requires_completed_validation": true,
+    "completed_contrast_requires_completed_uncertainty": true,
+    "validation_unavailable_status": "diagnostic_only",
+    "uncertainty_unavailable_status": "diagnostic_only",
+    "positive_ratio_prediction_required": true,
+    "nonpositive_ratio_prediction_status": "unavailable",
+    "nonpositive_ratio_prediction_reason_code": "NONPOSITIVE_RATIO_PREDICTION",
+    "diagnostic_point_calculation_preserved": true,
+    "contrast_statuses": [
+      "completed",
+      "diagnostic_only",
+      "unavailable"
+    ]
+  },
+  "trajectory_summaries": {
+    "outcome_values_used_for_scope_selection": false,
+    "record_types": [
+      "cell",
+      "condition",
+      "condition_horizon"
+    ],
+    "cell_summary_key": [
+      "aging_mode",
+      "dataset_stage",
+      "condition_protocol_identity",
+      "cell_identity",
+      "outcome",
+      "cohort",
+      "horizon_axis"
+    ],
+    "cell_summary_fields": [
+      "observation_count",
+      "minimum_horizon",
+      "maximum_horizon",
+      "first_observed_outcome",
+      "last_observed_outcome",
+      "minimum_outcome",
+      "maximum_outcome"
+    ],
+    "condition_summary_key": [
+      "aging_mode",
+      "dataset_stage",
+      "condition_protocol_identity",
+      "outcome",
+      "cohort",
+      "horizon_axis"
+    ],
+    "condition_summary_fields": [
+      "independent_cell_count",
+      "observation_count",
+      "minimum_horizon",
+      "maximum_horizon"
+    ],
+    "condition_horizon_summary_key": [
+      "aging_mode",
+      "dataset_stage",
+      "condition_protocol_identity",
+      "outcome",
+      "cohort",
+      "horizon_axis",
+      "horizon"
+    ],
+    "condition_horizon_cell_value": "mean_of_eligible_outcomes_for_the_cell_at_the_exact_horizon",
+    "condition_horizon_mean": "arithmetic_mean_of_cell_values",
+    "condition_horizon_standard_deviation": "sample_standard_deviation_of_cell_values",
+    "condition_horizon_standard_deviation_minimum_cells": 2,
+    "condition_horizon_fields": [
+      "independent_cell_count",
+      "observation_count",
+      "mean_outcome",
+      "standard_deviation_outcome",
+      "minimum_outcome",
+      "maximum_outcome"
+    ],
+    "missing_standard_deviation_serialization": "",
+    "outcome_direction_used_for_row_selection": false,
+    "source_population": "unique_eligible_positive_horizon_observations_from_the_union_of_authorized_support_region_member_cells_for_the_same_aging_mode_outcome_cohort_and_horizon_axis",
+    "support_membership_required": true,
+    "support_interval_restriction_applied_to_summary_observations": true,
+    "summary_observation_support_rule": "An observation is included when its cell belongs to the support region and its horizon satisfies that region's lower and upper boundary rules.",
+    "observation_in_multiple_support_regions": "count_once_after_confirming_identical_source_record_content",
+    "observed_records_outside_all_authorized_support_intervals": "excluded_from_reported_trajectory_summaries_and_recorded_in_observation_accounting",
+    "duplicate_source_identity_across_support_regions_counted_once": true,
+    "duplicate_source_identity_resolution": "identical_record_required",
+    "conflicting_duplicate_action": "fail_run",
+    "primary_and_sensitivity_summaries_pooled": false,
+    "calendar_and_cycle_summaries_pooled": false,
+    "dataset_stages_pooled": false,
+    "fec_completeness_required_for_fec_summaries": true,
+    "within_cell_observation_order": [
+      "horizon_ascending",
+      "source_identity_ascending"
+    ],
+    "first_observed_outcome": "outcome_of_the_first_observation_in_within_cell_observation_order",
+    "last_observed_outcome": "outcome_of_the_last_observation_in_within_cell_observation_order"
+  },
+  "diagnostics": {
+    "weighted_least_squares_training_prediction": "fixed_effect_prediction",
+    "mixed_model_marginal_training_prediction": "fixed_effect_prediction_with_random_effect_equal_to_zero",
+    "mixed_model_conditional_training_prediction": "fixed_effect_prediction_plus_fitted_cell_random_intercept",
+    "weighted_least_squares_residual": "observation_minus_fixed_effect_prediction",
+    "mixed_model_marginal_residual": "observation_minus_marginal_training_prediction",
+    "mixed_model_conditional_residual": "observation_minus_conditional_training_prediction",
+    "primary_mixed_model_training_residual": "conditional_residual",
+    "residual_mean": "mean_over_cells_of_mean_residual_within_cell",
+    "residual_standard_deviation": "square_root_of_mean_over_cells_of_mean_within_cell_squared_deviation_from_the_equal_cell_weighted_residual_mean",
+    "standardized_residual": "residual_divided_by_residual_standard_deviation",
+    "zero_residual_standard_deviation_status": "standardized_residual_unavailable",
+    "maximum_absolute_standardized_residual": "maximum_absolute_available_standardized_residual",
+    "required_fit_diagnostics": [
+      "matrix_rank",
+      "effective_condition_number",
+      "residual_independent_cell_degrees_of_freedom",
+      "residual_mean",
+      "residual_standard_deviation",
+      "maximum_absolute_standardized_residual",
+      "convergence_status",
+      "random_effect_singularity_status"
+    ],
+    "mixed_model_additional_diagnostics": [
+      "marginal_residual_mean",
+      "marginal_residual_standard_deviation",
+      "conditional_residual_mean",
+      "conditional_residual_standard_deviation",
+      "random_intercept_variance",
+      "residual_variance"
+    ],
+    "normality_test_used_for_acceptance": false,
+    "heteroskedasticity_test_used_for_acceptance": false,
+    "statistical_significance_used_for_acceptance": false
+  },
+  "influence": {
+    "unit": "cell_identity",
+    "method": "delete_one_cell_refit",
+    "deleted_refit_encoding": "identical_to_full_data_encoding",
+    "deleted_refit_spline_knots": "identical_to_full_data_knots",
+    "deleted_refit_model_columns": "identical_to_full_data_model_columns",
+    "coefficient_change": "deleted_cell_estimate_minus_full_data_estimate",
+    "standardized_coefficient_change": "coefficient_change_divided_by_full_data_jackknife_standard_error",
+    "zero_standard_error_status": "standardized_change_unavailable",
+    "maximum_absolute_standardized_coefficient_change": "maximum_absolute_available_standardized_coefficient_change_across_coefficients",
+    "required_outputs": [
+      "coefficient_change",
+      "standardized_coefficient_change",
+      "maximum_absolute_standardized_coefficient_change",
+      "fit_status"
+    ],
+    "automatic_cell_exclusion_permitted": false,
+    "influence_threshold_used_for_exclusion": false
+  },
+  "condition_calibration": {
+    "prediction_source": "out_of_fold_new_cell_predictions",
+    "grouping_fields": [
+      "condition_protocol_identity"
+    ],
+    "required_outputs": [
+      "independent_cell_count",
+      "observation_count",
+      "mean_observed",
+      "mean_predicted",
+      "mean_error",
+      "mean_absolute_error",
+      "root_mean_squared_error"
+    ],
+    "cell_weighting": "equal",
+    "mean_observed": "mean_over_cells_of_mean_observed_outcome_within_cell",
+    "mean_predicted": "mean_over_cells_of_mean_predicted_outcome_within_cell",
+    "mean_error": "mean_over_cells_of_mean_within_cell_prediction_minus_observation",
+    "mean_absolute_error": "mean_over_cells_of_mean_within_cell_absolute_prediction_error",
+    "root_mean_squared_error": "square_root_of_mean_over_cells_of_mean_within_cell_squared_prediction_error",
+    "complete_out_of_fold_predictions_required": true,
+    "incomplete_prediction_action": "condition_calibration_unavailable"
+  },
+  "model_comparison": {
+    "comparison_group_fields": [
+      "support_region_identity",
+      "design_scope",
+      "sampling_design_scope",
+      "aging_mode",
+      "outcome",
+      "cohort",
+      "horizon_axis",
+      "specification",
+      "context_family"
+    ],
+    "candidate_pair_generation": "all_lexicographically_ordered_pairs_of_selected_candidate_templates_within_the_same_comparison_group",
+    "first_candidate": "lexicographically_smaller_candidate_identity",
+    "second_candidate": "lexicographically_larger_candidate_identity",
+    "comparison_population": "identical_out_of_fold_source_identities_only",
+    "identical_out_of_fold_population_required": true,
+    "comparison_metrics": [
+      "mean_absolute_error",
+      "root_mean_squared_error"
+    ],
+    "metric_difference_direction": "second_candidate_metric_minus_first_candidate_metric",
+    "comparison_statuses": [
+      "completed",
+      "unavailable"
+    ],
+    "unavailable_reason_codes": [
+      "FIRST_CANDIDATE_VALIDATION_UNAVAILABLE",
+      "SECOND_CANDIDATE_VALIDATION_UNAVAILABLE",
+      "OUT_OF_FOLD_POPULATIONS_DIFFER",
+      "VALIDATION_METRIC_UNAVAILABLE"
+    ],
+    "outcome_dependent_candidate_selection": false,
+    "performance_ranking_reported": false,
+    "performance_selected_winner_reported": false,
+    "minimum_metric_difference_for_selection": null,
+    "statistical_test_between_models_reported": false,
+    "all_admissible_candidates_retained": true,
+    "non_comparable_candidates": "recorded_with_unavailable_status_and_reason_code",
+    "comparison_interpretation": "descriptive_predictive_benchmark_only"
+  },
+  "missing_data": {
+    "imputation_permitted": false,
+    "complete_case_scope": "candidate_required_fields_only",
+    "missingness_reasons_recorded": true,
+    "excluded_observation_counts_recorded": true,
+    "failed_numeric_parse_action": "fail_run",
+    "non_finite_value_action": "fail_run"
+  },
+  "multiplicity": {
+    "null_hypothesis_tests_reported": false,
+    "p_values_reported": false,
+    "statistical_significance_labels_reported": false,
+    "confidence_intervals": "marginal_descriptive_intervals",
+    "familywise_error_claims_permitted": false,
+    "false_discovery_rate_claims_permitted": false,
+    "selection_using_interval_exclusion_permitted": false
+  },
+  "candidate_dispositions": [
+    "fitted",
+    "inadmissible",
+    "fit_failed",
+    "not_assembled",
+    "not_selected"
+  ],
+  "candidate_reconciliation": {
+    "every_authorized_candidate_accounted_for": true,
+    "every_candidate_term_accounted_for": true,
+    "every_unselected_candidate_has_reason_code": true,
+    "every_support_region_accounted_for": true,
+    "every_candidate_template_accounted_for": true,
+    "silent_failure_permitted": false,
+    "silent_specification_change_permitted": false,
+    "silent_observation_exclusion_permitted": false
+  },
+  "reporting": {
+    "estimate_labels": [
+      "descriptive",
+      "associational",
+      "predictive"
+    ],
+    "causal_language_permitted": false,
+    "policy_language_permitted": false,
+    "gross_calendar_time_label_required": true,
+    "support_region_identity_required": true,
+    "estimand_decision_identity_required_for_contrasts": true,
+    "cohort_required": true,
+    "dataset_stage_required": true,
+    "horizon_axis_required": true,
+    "condition_protocol_identity_required": true,
+    "analysis_status_rule": "completed_with_model_family_failures_when_any_attempted_estimator_has_zero_successful_fits_otherwise_completed",
+    "estimator_outcome_summary_required": true,
+    "template_outcome_summary_required": true,
+    "fitted_result_availability_summary_required": true,
+    "candidate_analytical_result_statuses": [
+      "available",
+      "available_with_influence_limitation",
+      "diagnostic_only",
+      "not_available"
+    ],
+    "candidate_analytical_result_status_rule": "not_available_if_fit_not_completed_else_diagnostic_only_if_validation_or_uncertainty_unavailable_else_available_with_influence_limitation_if_influence_unavailable_else_available",
+    "analytical_handoff_statuses": [
+      "ready",
+      "ready_with_candidate_restrictions",
+      "ready_with_model_family_and_candidate_restrictions",
+      "not_ready_no_validated_contrasts"
+    ],
+    "analytical_handoff_status_rule": "not_ready_if_no_completed_contrasts_else_ready_with_model_family_and_candidate_restrictions_if_an_attempted_estimator_has_no_successful_fit_else_ready_with_candidate_restrictions_if_any_fitted_candidate_has_an_availability_limitation_else_ready",
+    "analysis_registration_status": "result_informed_exploratory",
+    "analysis_registration_status_required": true,
+    "analysis_registration_rationale": "This version applies result-informed amendments to training-domain, longitudinal-admissibility, contrast-qualification and analytical-handoff semantics. Analyses governed by this version are classified exploratory rather than confirmatory under the frozen amendment rule."
+  },
+  "artifact_contract": {
+    "output_tables": [
+      "candidate_registry",
+      "candidate_terms",
+      "observation_accounting",
+      "trajectory_summaries",
+      "model_coefficients",
+      "model_diagnostics",
+      "validation_folds",
+      "validation_predictions",
+      "validation_metrics",
+      "model_comparisons",
+      "condition_calibration",
+      "influence_diagnostics",
+      "model_contrasts"
+    ],
+    "report_file_name": "descriptive_modeling_report.json",
+    "table_file_extension": ".csv",
+    "empty_table_permitted": true,
+    "empty_table_requires_schema": true,
+    "row_order": "lexicographical_by_declared_primary_key",
+    "field_order": "declared_schema_order",
+    "floating_point_serialization": "python_shortest_round_trip_representation",
+    "missing_value_serialization": "",
+    "boolean_serialization": {
+      "true": "true",
+      "false": "false"
+    },
+    "json_cell_serialization": {
+      "sort_keys": true,
+      "separators": [
+        ",",
+        ":"
+      ],
+      "allow_nan": false
+    },
+    "publication_method": "write_complete_staging_directory_validate_all_artifacts_then_atomically_replace_declared_files_with_report_replaced_last",
+    "existing_unlisted_files_preserved": false,
+    "unexpected_existing_file_action": "fail_run",
+    "expected_destination_files": "declared_output_tables_plus_report_file",
+    "report_replaced_last": true,
+    "staging_directory_must_share_destination_filesystem": true,
+    "failed_publication_action": "retain_previous_complete_report_and_raise_error",
+    "table_schemas_declared_in_implementation": true,
+    "table_primary_keys_declared_in_implementation": true,
+    "duplicate_primary_key_action": "fail_run",
+    "inconsistent_record_schema_action": "fail_run",
+    "non_finite_output_action": "fail_run",
+    "candidate_identity_in_every_model_output": true,
+    "fit_identity_in_every_fitted_model_output": true,
+    "source_identity_in_observation_level_outputs": true,
+    "schema_included_in_report_manifest": true
+  },
+  "reproducibility": {
+    "stochastic_procedures_permitted": false,
+    "random_seed": null,
+    "single_threaded_numerical_execution": true,
+    "required_thread_environment": {
+      "OMP_NUM_THREADS": "1",
+      "OPENBLAS_NUM_THREADS": "1",
+      "MKL_NUM_THREADS": "1",
+      "VECLIB_MAXIMUM_THREADS": "1",
+      "NUMEXPR_NUM_THREADS": "1"
+    },
+    "canonical_json": {
+      "sort_keys": true,
+      "separators": [
+        ",",
+        ":"
+      ],
+      "allow_nan": false
+    },
+    "output_encoding": "utf-8",
+    "csv_line_terminator": "\n",
+    "input_hashes_required": true,
+    "output_hashes_required": true,
+    "software_versions_required": true,
+    "byte_identical_repeat_execution_required": true
+  }
+}

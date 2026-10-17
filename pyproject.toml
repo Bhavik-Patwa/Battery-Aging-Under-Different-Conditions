@@ -6,7 +6,9 @@ requires-python = ">=3.11,<3.12"
 dependencies = [
     "google-cloud-storage>=3.14.1,<4.0",
     "google-cloud-storage-transfer>=1.21.0,<2.0",
-    "numpy>=2.0,<3.0"
+    "numpy>=2.0,<3.0",
+    "scipy>=1.16,<2.0",
+    "statsmodels>=0.15,<0.16"
 ]
 
 [dependency-groups]
