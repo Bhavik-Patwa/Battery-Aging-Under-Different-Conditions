@@ -1,12 +1,14 @@
 {
-  "policy_version": "1.14",
+  "policy_version": "1.16",
   "effective_date": "2026-10-17",
-  "previous_policy_sha256": "3baf1ef23989dcc248aaf8fd35678ebac0820b25ab1bc0f66c50b52c972eae44",
+  "previous_policy_sha256": "56946157b4d7798a5212ab827fe0eba264f154f352a9482c2efc123c8166ccda",
   "amendment": {
-    "reason": "Restating the declared admissibility order, withdrawing a cross-sectional fitting permission that did not correspond to an authorized analytical path and marking analyses governed by result-informed amendments as exploratory. Candidate assembly, model fitting, uncertainty, validation, contrasts and model comparison are unchanged.",
+    "reason": "Correcting the provenance description of analytical qualification, binding its implementation-driving requirements to the policy and ensuring that any authorized point contrasts use only explicitly approved discrete horizons. Candidate construction and specification selection remain outcome-blind, while downstream qualification uses outcome-dependent grouped-validation results under an explicitly result-informed exploratory rule.",
     "result_informed": true,
     "affected_analyses": [
-      "policy_validation",
+      "validation_qualification",
+      "contrast_authorization",
+      "analytical_handoff",
       "reporting"
     ],
     "complete_rerun_required": true
@@ -459,7 +461,7 @@
     "finite_outcome_required": true,
     "finite_weight_required": true,
     "positive_weight_required": true,
-    "mixed_model_random_effect_variance_threshold_interpretation": "absolute_variance_on_the_fitted_outcome_scale",
+    "mixed_model_random_effect_threshold_interpretation": "random_intercept_intraclass_correlation_relative_to_total_outcome_variance",
     "admissibility_order": [
       "assembly_complete",
       "complete_interaction_hierarchy",
@@ -513,10 +515,22 @@
       ],
       "maximum_iterations": 1000,
       "convergence_required": true,
-      "convergence_warning_action": "fit_failed",
+      "optimizer_convergence_source": "candidate_result_converged",
+      "warning_only_failure_permitted": false,
+      "warning_classification": {
+        "optimizer_nonconvergence": "record_and_require_converged_false",
+        "parameter_boundary": "record_without_automatic_failure",
+        "random_effect_covariance_singular": "record_and_apply_numerical_variance_component_checks",
+        "hessian_not_positive_definite": "record_and_apply_fixed_effect_covariance_validity_checks",
+        "unclassified_warning": "record_without_automatic_failure"
+      },
+      "singular_random_effect_rule": "random_intercept_intraclass_correlation_less_than_or_equal_to_machine_precision_based_tolerance",
+      "singular_random_effect_icc_tolerance": 1.4901161193847656e-08,
+      "singular_random_effect_icc_tolerance_basis": "square_root_of_ieee_754_float64_machine_epsilon",
+      "fixed_effect_covariance_symmetry_required": true,
+      "fixed_effect_covariance_positive_semidefinite_required": true,
+      "fixed_effect_covariance_eigenvalue_tolerance": "maximum_matrix_dimension_times_machine_epsilon_times_maximum_of_one_and_largest_absolute_eigenvalue",
       "non_convergence_action": "fit_failed",
-      "singular_random_effect_tolerance": 1e-10,
-      "singular_random_effect_rule": "estimated_random_intercept_variance_less_than_or_equal_to_tolerance",
       "singular_random_effect_action": "fit_failed",
       "non_finite_parameter_action": "fit_failed",
       "non_finite_covariance_action": "fit_failed",
@@ -691,7 +705,27 @@
     "equal_cell_weighted_observed_mean": "mean_over_cells_of_mean_observed_outcome_within_cell",
     "predictive_r_squared_numerator": "mean_over_cells_of_mean_within_cell_squared_prediction_error",
     "predictive_r_squared_denominator": "mean_over_cells_of_mean_within_cell_squared_deviation_from_equal_cell_weighted_observed_mean",
-    "metric_non_finite_action": "validation_unavailable"
+    "metric_non_finite_action": "validation_unavailable",
+    "analytical_qualification": {
+      "interpretation": "result_informed_minimum_predictive_and_numerical_qualification_for_exploratory_associational_trajectory_reporting",
+      "validation_execution_completed_required": true,
+      "uncertainty_completed_required": true,
+      "influence_completed_required": true,
+      "predictive_r_squared_completed_required": true,
+      "predictive_r_squared_minimum": 0.0,
+      "predictive_r_squared_minimum_interpretation": "out_of_fold_predictions_must_not_have_strictly_greater_cell_weighted_squared_error_than_the_equal_cell_weighted_observed_mean_benchmark",
+      "strictly_positive_out_of_fold_predictions_required": true,
+      "prediction_interval_metric_completed_required": true,
+      "condition_calibration_computation_required_for_every_condition_with_evaluation_domain_observations": true,
+      "mean_absolute_error_threshold": null,
+      "root_mean_squared_error_threshold": null,
+      "residual_threshold": null,
+      "influence_threshold": null,
+      "null_threshold_interpretation": "reported_diagnostic_without_unjustified_universal_cutoff",
+      "failed_qualification_status": "diagnostic_only",
+      "qualification_does_not_establish_causal_identification": true,
+      "qualification_does_not_establish_model_truth": true
+    }
   },
   "prediction_intervals": {
     "confidence_level": 0.95,
@@ -729,7 +763,13 @@
     ],
     "decision_identity_method": "sha256_of_canonical_json",
     "condition_order_preserved_from_authorization_record": true,
-    "evaluation_horizons": "sorted_union_of_eligible_observed_horizons_from_the_compared_conditions_within_the_authorized_pairwise_range_and_model_support_region",
+    "discrete_horizon_authorization_source": "experimental_design_report.horizon_selection_policy.approved_discrete_horizons",
+    "discrete_horizon_status_source": "experimental_design_report.discrete_comparison_horizon_status",
+    "approved_discrete_horizons_required": true,
+    "empty_approved_discrete_horizons_action": "point_contrasts_unavailable",
+    "empty_approved_discrete_horizons_reason_code": "DISCRETE_HORIZON_NOT_AUTHORIZED",
+    "observed_horizons_do_not_authorize_point_contrasts": true,
+    "continuous_trajectory_reporting_remains_authorized": true,
     "model_based_interpolation_label_required": true,
     "point_selection_using_outcome_values_permitted": false,
     "prediction_for_unobserved_condition_combination_permitted": false,
@@ -1022,21 +1062,19 @@
     "fitted_result_availability_summary_required": true,
     "candidate_analytical_result_statuses": [
       "available",
-      "available_with_influence_limitation",
       "diagnostic_only",
       "not_available"
     ],
-    "candidate_analytical_result_status_rule": "not_available_if_fit_not_completed_else_diagnostic_only_if_validation_or_uncertainty_unavailable_else_available_with_influence_limitation_if_influence_unavailable_else_available",
+    "candidate_analytical_result_status_rule": "not_available_if_fit_not_completed_else_diagnostic_only_if_validation_uncertainty_influence_or_analytical_qualification_fails_else_available",
     "analytical_handoff_statuses": [
-      "ready",
-      "ready_with_candidate_restrictions",
-      "ready_with_model_family_and_candidate_restrictions",
-      "not_ready_no_validated_contrasts"
+      "ready_for_continuous_trajectory_analysis",
+      "ready_for_continuous_trajectory_analysis_with_model_family_and_candidate_restrictions",
+      "not_ready_no_analytically_qualified_trajectory_models"
     ],
-    "analytical_handoff_status_rule": "not_ready_if_no_completed_contrasts_else_ready_with_model_family_and_candidate_restrictions_if_an_attempted_estimator_has_no_successful_fit_else_ready_with_candidate_restrictions_if_any_fitted_candidate_has_an_availability_limitation_else_ready",
+    "analytical_handoff_status_rule": "not_ready_if_no_analytically_qualified_trajectory_models_else_ready_with_model_family_and_candidate_restrictions_if_an_attempted_estimator_has_no_successful_fit_or_any_fitted_candidate_is_diagnostic_only_else_ready",
     "analysis_registration_status": "result_informed_exploratory",
     "analysis_registration_status_required": true,
-    "analysis_registration_rationale": "This version applies result-informed amendments to training-domain, longitudinal-admissibility, contrast-qualification and analytical-handoff semantics. Analyses governed by this version are classified exploratory rather than confirmatory under the frozen amendment rule."
+    "analysis_registration_rationale": "This version preserves outcome-blind candidate construction and specification selection while applying result-informed analytical qualification based on grouped predictive benchmarking and complete diagnostic availability. It also separates optimizer convergence from warning diagnostics, uses scale-aware numerical random-effect checks and requires upstream discrete-horizon authorization for point contrasts. Analyses governed by this version are exploratory rather than confirmatory."
   },
   "artifact_contract": {
     "output_tables": [

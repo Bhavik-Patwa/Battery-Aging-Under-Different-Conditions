@@ -36,7 +36,6 @@ import numpy as np
 
 from scipy.stats import t as student_t
 from statsmodels.regression.mixed_linear_model import MixedLM
-from statsmodels.tools.sm_exceptions import ConvergenceWarning
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -220,6 +219,13 @@ OUTPUT_TABLE_CONTRACTS = {
             "final_disposition",
             "final_reason_code",
             "numerical_fit_status",
+            "validation_execution_status",
+            "predictive_benchmark_status",
+            "prediction_domain_status",
+            "prediction_interval_assessment_status",
+            "condition_calibration_assessment_status",
+            "model_adequacy_status",
+            "model_adequacy_reason_code",
             "analytical_result_status",
             "analytical_result_reason_code"
         ],
@@ -727,7 +733,7 @@ IMPLEMENTED_POLICY_VALUES = [
         (
             "policy_version",
         ),
-        "1.14"
+        "1.16"
     ),
     (
         (
@@ -1344,9 +1350,25 @@ IMPLEMENTED_POLICY_VALUES = [
         (
             "estimation",
             "linear_mixed_effects",
-            "singular_random_effect_tolerance"
+            "optimizer_convergence_source"
         ),
-        1e-10
+        "candidate_result_converged"
+    ),
+    (
+        (
+            "estimation",
+            "linear_mixed_effects",
+            "warning_only_failure_permitted"
+        ),
+        False
+    ),
+    (
+        (
+            "estimation",
+            "linear_mixed_effects",
+            "singular_random_effect_icc_tolerance"
+        ),
+        1.4901161193847656e-08
     ),
     (
         (
@@ -1860,7 +1882,6 @@ IMPLEMENTED_POLICY_VALUES = [
         ),
         [
             "available",
-            "available_with_influence_limitation",
             "diagnostic_only",
             "not_available"
         ]
@@ -1871,8 +1892,8 @@ IMPLEMENTED_POLICY_VALUES = [
             "candidate_analytical_result_status_rule"
         ),
         (
-            "not_available_if_fit_not_completed_else_diagnostic_only_if_validation_or_uncertainty_unavailable_else_"
-            "available_with_influence_limitation_if_influence_unavailable_else_available"
+            "not_available_if_fit_not_completed_else_diagnostic_only_if_validation_uncertainty_influence_or_"
+            "analytical_qualification_fails_else_available"
         )
     ),
     (
@@ -1881,10 +1902,9 @@ IMPLEMENTED_POLICY_VALUES = [
             "analytical_handoff_statuses"
         ),
         [
-            "ready",
-            "ready_with_candidate_restrictions",
-            "ready_with_model_family_and_candidate_restrictions",
-            "not_ready_no_validated_contrasts"
+            "ready_for_continuous_trajectory_analysis",
+            "ready_for_continuous_trajectory_analysis_with_model_family_and_candidate_restrictions",
+            "not_ready_no_analytically_qualified_trajectory_models"
         ]
     ),
     (
@@ -1893,9 +1913,9 @@ IMPLEMENTED_POLICY_VALUES = [
             "analytical_handoff_status_rule"
         ),
         (
-            "not_ready_if_no_completed_contrasts_else_ready_with_model_family_and_candidate_restrictions_if_an_"
-            "attempted_estimator_has_no_successful_fit_else_ready_with_candidate_restrictions_if_any_"
-            "fitted_candidate_has_an_availability_limitation_else_ready"
+            "not_ready_if_no_analytically_qualified_trajectory_models_else_ready_with_model_family_and_candidate_"
+            "restrictions_if_an_attempted_estimator_has_no_successful_fit_or_any_fitted_candidate_is_"
+            "diagnostic_only_else_ready"
         )
     ),
     (
@@ -1917,7 +1937,7 @@ IMPLEMENTED_POLICY_VALUES = [
             "reporting",
             "analysis_registration_rationale"
         ),
-        "This version applies result-informed amendments to training-domain, longitudinal-admissibility, contrast-qualification and analytical-handoff semantics. Analyses governed by this version are classified exploratory rather than confirmatory under the frozen amendment rule."
+        "This version preserves outcome-blind candidate construction and specification selection while applying result-informed analytical qualification based on grouped predictive benchmarking and complete diagnostic availability. It also separates optimizer convergence from warning diagnostics, uses scale-aware numerical random-effect checks and requires upstream discrete-horizon authorization for point contrasts. Analyses governed by this version are exploratory rather than confirmatory."
     ),
     (
         (
@@ -2886,6 +2906,39 @@ def load_design_inputs(design_report_path: Path) -> tuple[dict, dict[str, list[d
     ) is not False:
         raise RuntimeError("Experimental-design support was not outcome-blind.")
 
+    if design_report.get(
+        "discrete_comparison_horizon_status"
+    ) != (
+        "not_authorized_without_outcome_blind_pre_specification"
+    ):
+        raise RuntimeError("Experimental-design report contains an unexpected discrete-horizon status.")
+
+    if design_report.get(
+        "point_contrast_requirement"
+    ) != (
+        "outcome_blind_scientific_or_protocol_pre_specification_before_comparative_results_are_examined"
+    ):
+        raise RuntimeError("Experimental-design report contains an unexpected point-contrast requirement.")
+
+    horizon_selection_policy = design_report.get(
+        "horizon_selection_policy"
+    )
+
+    if not isinstance(
+        horizon_selection_policy,
+        dict
+    ):
+        raise RuntimeError("Experimental-design report does not contain a horizon-selection policy.")
+
+    approved_discrete_horizons = (
+        horizon_selection_policy.get(
+            "approved_discrete_horizons"
+        )
+    )
+
+    if approved_discrete_horizons != []:
+        raise RuntimeError("The current modeling policy does not implement approved discrete horizons.")
+
     table_manifest = design_report.get(
         "tables"
     )
@@ -3488,14 +3541,6 @@ def build_candidate_registry(scope_records: list[dict], modeling_policy: dict) -
             term_name
             for term_name, term_type in scope_terms
         }
-
-        authorized_source_terms = [
-            {
-                "term_name": term_name,
-                "term_type": term_type
-            }
-            for term_name, term_type in scope_terms
-        ]
 
         for candidate_template in candidate_templates:
             template_name = candidate_template[
@@ -7801,6 +7846,105 @@ def extract_random_intercept(random_effect_value: object, cell_identity: str) ->
     return random_intercept
 
 
+# Classifying mixed-effects warnings without equating every warning with non-convergence
+def classify_mixed_effects_warning(warning_message: str) -> str:
+    normalized_message = (
+        warning_message
+        .strip()
+        .lower()
+    )
+
+    if (
+        "maximum likelihood optimization failed"
+        in normalized_message
+        or "mixedlm optimization failed"
+        in normalized_message
+        or "gradient optimization failed"
+        in normalized_message
+    ):
+        return "optimizer_nonconvergence"
+
+    if (
+        "boundary of the parameter space"
+        in normalized_message
+    ):
+        return "parameter_boundary"
+
+    if (
+        "random effects covariance is singular"
+        in normalized_message
+    ):
+        return (
+            "random_effect_covariance_singular"
+        )
+
+    if (
+        "hessian matrix"
+        in normalized_message
+        and "not positive definite"
+        in normalized_message
+    ):
+        return "hessian_not_positive_definite"
+
+    return "unclassified_warning"
+
+
+# Validating one fitted fixed-effect covariance matrix
+def validate_fixed_effect_covariance(covariance_matrix: np.ndarray) -> tuple[np.ndarray, float]:
+    if (
+        covariance_matrix.ndim != 2
+        or covariance_matrix.shape[0]
+        != covariance_matrix.shape[1]
+        or not np.all(
+            np.isfinite(
+                covariance_matrix
+            )
+        )
+    ):
+        raise ValueError("Fixed-effect covariance is not finite and square.")
+
+    symmetric_covariance = (
+        covariance_matrix
+        + covariance_matrix.T
+    ) / 2
+
+    covariance_eigenvalues = np.linalg.eigvalsh(
+        symmetric_covariance
+    )
+
+    eigenvalue_tolerance = (
+        covariance_matrix.shape[0]
+        * np.finfo(
+            float
+        ).eps
+        * max(
+            1.0,
+            float(
+                np.max(
+                    np.abs(
+                        covariance_eigenvalues
+                    )
+                )
+            )
+        )
+    )
+
+    if (
+        float(
+            np.min(
+                covariance_eigenvalues
+            )
+        )
+        < -eigenvalue_tolerance
+    ):
+        raise ValueError("Fixed-effect covariance is not positive semidefinite.")
+
+    return (
+        symmetric_covariance,
+        eigenvalue_tolerance
+    )
+
+
 # Fitting one random-intercept linear mixed-effects model
 def fit_linear_mixed_effects(prepared_model: dict, modeling_policy: dict) -> dict:
     model_matrix = prepared_model[
@@ -7862,13 +8006,22 @@ def fit_linear_mixed_effects(prepared_model: dict, modeling_policy: dict) -> dic
 
     successful_optimizer = None
 
+    successful_fixed_effect_covariance = None
+
     for optimizer_name in estimation_policy[
         "optimizer_sequence"
     ]:
         attempt_record = {
             "optimizer": optimizer_name,
             "status": "failed",
+            "optimizer_converged": None,
             "warning_messages": [],
+            "warning_codes": [],
+            "random_intercept_variance": None,
+            "residual_variance": None,
+            "intraclass_correlation": None,
+            "fixed_effect_covariance_status": None,
+            "fixed_effect_covariance_eigenvalue_tolerance": None,
             "error": None
         }
 
@@ -7921,30 +8074,30 @@ def fit_linear_mixed_effects(prepared_model: dict, modeling_policy: dict) -> dic
                 "warning_messages"
             ] = warning_messages
 
-            convergence_warning_present = any(
-                issubclass(
-                    captured_warning.category,
-                    ConvergenceWarning
+            warning_codes = [
+                classify_mixed_effects_warning(
+                    str(
+                        captured_warning.message
+                    )
                 )
                 for captured_warning in (
                     captured_warnings
                 )
+            ]
+
+            attempt_record[
+                "warning_codes"
+            ] = warning_codes
+
+            optimizer_converged = bool(
+                candidate_result.converged
             )
 
-            if convergence_warning_present:
-                attempt_record[
-                    "error"
-                ] = "convergence_warning"
+            attempt_record[
+                "optimizer_converged"
+            ] = optimizer_converged
 
-                optimizer_attempts.append(
-                    attempt_record
-                )
-
-                continue
-
-            if not bool(
-                candidate_result.converged
-            ):
+            if not optimizer_converged:
                 attempt_record[
                     "error"
                 ] = "non_convergence"
@@ -7994,27 +8147,44 @@ def fit_linear_mixed_effects(prepared_model: dict, modeling_policy: dict) -> dic
                 ]
             )
 
-            if (
-                fixed_effect_covariance.shape
-                != (
-                    model_matrix.shape[1],
-                    model_matrix.shape[1]
+            try:
+                (
+                    fixed_effect_covariance,
+                    covariance_eigenvalue_tolerance
+                ) = validate_fixed_effect_covariance(
+                    fixed_effect_covariance
                 )
-                or not np.all(
-                    np.isfinite(
-                        fixed_effect_covariance
-                    )
-                )
-            ):
+
+            except ValueError as exc:
+                attempt_record[
+                    "fixed_effect_covariance_status"
+                ] = "invalid"
+
                 attempt_record[
                     "error"
                 ] = "invalid_fixed_effect_covariance"
+
+                attempt_record[
+                    "warning_messages"
+                ].append(
+                    str(
+                        exc
+                    )
+                )
 
                 optimizer_attempts.append(
                     attempt_record
                 )
 
                 continue
+
+            attempt_record[
+                "fixed_effect_covariance_status"
+            ] = "completed"
+
+            attempt_record[
+                "fixed_effect_covariance_eigenvalue_tolerance"
+            ] = covariance_eigenvalue_tolerance
 
             random_effect_covariance = np.asarray(
                 candidate_result.cov_re,
@@ -8042,25 +8212,6 @@ def fit_linear_mixed_effects(prepared_model: dict, modeling_policy: dict) -> dic
                 ]
             )
 
-            if (
-                not math.isfinite(
-                    random_intercept_variance
-                )
-                or random_intercept_variance
-                <= estimation_policy[
-                    "singular_random_effect_tolerance"
-                ]
-            ):
-                attempt_record[
-                    "error"
-                ] = "singular_random_effect_variance"
-
-                optimizer_attempts.append(
-                    attempt_record
-                )
-
-                continue
-
             residual_variance = float(
                 candidate_result.scale
             )
@@ -8081,12 +8232,75 @@ def fit_linear_mixed_effects(prepared_model: dict, modeling_policy: dict) -> dic
 
                 continue
 
+            total_variance = (
+                random_intercept_variance
+                + residual_variance
+            )
+
+            if (
+                not math.isfinite(
+                    total_variance
+                )
+                or total_variance <= 0
+            ):
+                attempt_record[
+                    "error"
+                ] = "invalid_total_variance"
+
+                optimizer_attempts.append(
+                    attempt_record
+                )
+
+                continue
+
+            intraclass_correlation = (
+                random_intercept_variance
+                / total_variance
+            )
+
+            attempt_record[
+                "random_intercept_variance"
+            ] = random_intercept_variance
+
+            attempt_record[
+                "residual_variance"
+            ] = residual_variance
+
+            attempt_record[
+                "intraclass_correlation"
+            ] = intraclass_correlation
+
+            if (
+                not math.isfinite(
+                    intraclass_correlation
+                )
+                or intraclass_correlation
+                <= estimation_policy[
+                    "singular_random_effect_icc_tolerance"
+                ]
+            ):
+                attempt_record[
+                    "error"
+                ] = (
+                    "singular_random_effect_intraclass_correlation"
+                )
+
+                optimizer_attempts.append(
+                    attempt_record
+                )
+
+                continue
+
             attempt_record[
                 "status"
             ] = "completed"
 
             optimizer_attempts.append(
                 attempt_record
+            )
+
+            successful_fixed_effect_covariance = (
+                fixed_effect_covariance.copy()
             )
 
             fitted_result = candidate_result
@@ -8123,13 +8337,12 @@ def fit_linear_mixed_effects(prepared_model: dict, modeling_policy: dict) -> dic
         dtype = float
     )
 
-    model_based_fixed_effect_covariance = np.asarray(
-        fitted_result.cov_params(),
-        dtype = float
-    )[
-        :model_matrix.shape[1],
-        :model_matrix.shape[1]
-    ]
+    if successful_fixed_effect_covariance is None:
+        raise RuntimeError("Completed mixed-effects fit is missing its validated fixed-effect covariance.")
+
+    model_based_fixed_effect_covariance = (
+        successful_fixed_effect_covariance
+    )
 
     random_intercept_variance = float(
         np.asarray(
@@ -13728,6 +13941,7 @@ def build_unavailable_contrast_record(candidate_record: dict, estimand_record: d
 # Constructing condition contrasts authorized by the design report
 def build_model_contrasts(prepared_models: dict[str, dict], fitted_models_by_candidate: dict[str, dict],
                           estimand_records: list[dict], condition_records: list[dict],
+                          approved_discrete_horizons: list[dict], discrete_horizon_status: str,
                           modeling_policy: dict
 ) -> list[dict]:
     contrast_policy = modeling_policy[
@@ -14067,6 +14281,54 @@ def build_model_contrasts(prepared_models: dict[str, dict], fitted_models_by_can
             ):
                 raise RuntimeError(f"Candidate has an unsupported contrast context : {candidate_record['context_family']}")
 
+            if (
+                discrete_horizon_status
+                != (
+                    "authorized_with_outcome_blind_pre_specification"
+                )
+                or not approved_discrete_horizons
+            ):
+                unavailable_record = (
+                    build_unavailable_contrast_record(
+                        candidate_record = (
+                            candidate_record
+                        ),
+                        estimand_record = (
+                            estimand_record
+                        ),
+                        estimand_decision_identity = (
+                            estimand_decision_identity
+                        ),
+                        horizon_value = None,
+                        reason_code = (
+                            "DISCRETE_HORIZON_NOT_AUTHORIZED"
+                        ),
+                        evaluation_laboratory = (
+                            evaluation_laboratory
+                        ),
+                        model_based_interpolation = None
+                    )
+                )
+
+                contrast_key = (
+                    candidate_identity,
+                    estimand_decision_identity,
+                    None
+                )
+
+                if contrast_key in observed_contrast_keys:
+                    raise RuntimeError("Model contrasts contain a duplicate key.")
+
+                observed_contrast_keys.add(
+                    contrast_key
+                )
+
+                contrast_records.append(
+                    unavailable_record
+                )
+
+                continue
+
             first_observed_horizons = {
                 observation_record[
                     "horizon"
@@ -14090,22 +14352,51 @@ def build_model_contrasts(prepared_models: dict[str, dict], fitted_models_by_can
             }
 
             evaluation_horizons = sorted(
-                horizon_value
-                for horizon_value in (
-                    first_observed_horizons.union(
-                        second_observed_horizons
+                {
+                    parse_finite_number(
+                        horizon_definition[
+                            "horizon"
+                        ],
+                        "approved discrete horizon"
                     )
-                )
-                if (
-                    horizon_inside_candidate_support(
-                        horizon_value = horizon_value,
-                        candidate_record = candidate_record
+                    for horizon_definition in (
+                        approved_discrete_horizons
                     )
-                    and horizon_inside_permitted_contrast_ranges(
-                        horizon_value = horizon_value,
-                        permitted_ranges = permitted_ranges
+                    if (
+                        horizon_definition.get(
+                            "aging_mode"
+                        )
+                        == candidate_record[
+                            "aging_mode"
+                        ]
+                        and horizon_definition.get(
+                            "horizon_axis"
+                        )
+                        == candidate_record[
+                            "horizon_axis"
+                        ]
+                        and horizon_inside_candidate_support(
+                            horizon_value = float(
+                                horizon_definition[
+                                    "horizon"
+                                ]
+                            ),
+                            candidate_record = (
+                                candidate_record
+                            )
+                        )
+                        and horizon_inside_permitted_contrast_ranges(
+                            horizon_value = float(
+                                horizon_definition[
+                                    "horizon"
+                                ]
+                            ),
+                            permitted_ranges = (
+                                permitted_ranges
+                            )
+                        )
                     )
-                )
+                }
             )
 
             if (
@@ -14758,45 +15049,436 @@ def assign_final_candidate_dispositions(candidate_records: list[dict], modeling_
     }
 
 
-# Classifying fitted candidates for downstream analytical use
-def assign_candidate_analytical_result_status(candidate_records: list[dict]) -> None:
-    for candidate_record in candidate_records:
-        fit_status = candidate_record["fit_status"]
-        candidate_record["numerical_fit_status"] = fit_status
+# Classifying fitted candidates for analytical trajectory reporting
+def assign_candidate_analytical_result_status(candidate_records: list[dict], prepared_models: dict[str, dict],
+                                              validation_metric_records: list[dict],
+                                              validation_prediction_records: list[dict],
+                                              condition_calibration_records: list[dict],
+                                              modeling_policy: dict
+) -> None:
+    qualification_policy = modeling_policy[
+        "validation_metrics"
+    ][
+        "analytical_qualification"
+    ]
 
-        if fit_status != "completed":
-            candidate_record["analytical_result_status"] = "not_available"
-            candidate_record["analytical_result_reason_code"] = (
-                candidate_record.get("fit_reason_code")
+    r_squared_minimum = qualification_policy[
+        "predictive_r_squared_minimum"
+    ]
+
+    validation_required = qualification_policy[
+        "validation_execution_completed_required"
+    ]
+
+    uncertainty_required = qualification_policy[
+        "uncertainty_completed_required"
+    ]
+
+    influence_required = qualification_policy[
+        "influence_completed_required"
+    ]
+
+    predictive_completed_required = qualification_policy[
+        "predictive_r_squared_completed_required"
+    ]
+
+    positive_required = qualification_policy[
+        "strictly_positive_out_of_fold_predictions_required"
+    ]
+
+    interval_required = qualification_policy[
+        "prediction_interval_metric_completed_required"
+    ]
+
+    calibration_required = qualification_policy[
+        "condition_calibration_computation_required_for_every_condition_with_evaluation_domain_observations"
+    ]
+
+    metrics_by_candidate = {
+        metric_record[
+            "candidate_identity"
+        ]: metric_record
+        for metric_record in (
+            validation_metric_records
+        )
+    }
+
+    predictions_by_candidate = defaultdict(
+        list
+    )
+
+    for prediction_record in (
+        validation_prediction_records
+    ):
+        predictions_by_candidate[
+            prediction_record[
+                "candidate_identity"
+            ]
+        ].append(
+            prediction_record
+        )
+
+    calibration_by_candidate = defaultdict(
+        list
+    )
+
+    for calibration_record in (
+        condition_calibration_records
+    ):
+        calibration_by_candidate[
+            calibration_record[
+                "candidate_identity"
+            ]
+        ].append(
+            calibration_record
+        )
+
+    for candidate_record in candidate_records:
+        candidate_identity = candidate_record[
+            "candidate_identity"
+        ]
+
+        candidate_record[
+            "numerical_fit_status"
+        ] = candidate_record[
+            "fit_status"
+        ]
+
+        candidate_record[
+            "validation_execution_status"
+        ] = candidate_record.get(
+            "validation_status",
+            "not_attempted"
+        )
+
+        candidate_record[
+            "predictive_benchmark_status"
+        ] = "not_assessed"
+
+        candidate_record[
+            "prediction_domain_status"
+        ] = "not_assessed"
+
+        candidate_record[
+            "prediction_interval_assessment_status"
+        ] = "not_assessed"
+
+        candidate_record[
+            "condition_calibration_assessment_status"
+        ] = "not_assessed"
+
+        if candidate_record[
+            "fit_status"
+        ] != "completed":
+            candidate_record[
+                "model_adequacy_status"
+            ] = "not_available"
+
+            candidate_record[
+                "model_adequacy_reason_code"
+            ] = (
+                candidate_record.get(
+                    "fit_reason_code"
+                )
                 or "MODEL_NOT_FITTED"
             )
 
-        elif candidate_record["validation_status"] != "completed":
-            candidate_record["analytical_result_status"] = "diagnostic_only"
-            candidate_record["analytical_result_reason_code"] = (
-                candidate_record["validation_reason_code"]
+            candidate_record[
+                "analytical_result_status"
+            ] = "not_available"
+
+            candidate_record[
+                "analytical_result_reason_code"
+            ] = candidate_record[
+                "model_adequacy_reason_code"
+            ]
+
+            continue
+
+        if (
+            validation_required
+            and candidate_record[
+                "validation_status"
+            ] != "completed"
+        ):
+            candidate_record[
+                "model_adequacy_status"
+            ] = "diagnostic_only"
+
+            candidate_record[
+                "model_adequacy_reason_code"
+            ] = (
+                candidate_record[
+                    "validation_reason_code"
+                ]
                 or "GROUPED_VALIDATION_UNAVAILABLE"
             )
 
-        elif candidate_record["uncertainty_status"] != "completed":
-            candidate_record["analytical_result_status"] = "diagnostic_only"
-            candidate_record["analytical_result_reason_code"] = (
-                candidate_record["uncertainty_reason_code"]
+        elif (
+            uncertainty_required
+            and candidate_record[
+                "uncertainty_status"
+            ] != "completed"
+        ):
+            candidate_record[
+                "model_adequacy_status"
+            ] = "diagnostic_only"
+
+            candidate_record[
+                "model_adequacy_reason_code"
+            ] = (
+                candidate_record[
+                    "uncertainty_reason_code"
+                ]
                 or "UNCERTAINTY_UNAVAILABLE"
             )
 
-        elif candidate_record["influence_status"] != "completed":
-            candidate_record["analytical_result_status"] = (
-                "available_with_influence_limitation"
-            )
-            candidate_record["analytical_result_reason_code"] = (
-                candidate_record["influence_reason_code"]
+        elif (
+            influence_required
+            and candidate_record[
+                "influence_status"
+            ] != "completed"
+        ):
+            candidate_record[
+                "model_adequacy_status"
+            ] = "diagnostic_only"
+
+            candidate_record[
+                "model_adequacy_reason_code"
+            ] = (
+                candidate_record[
+                    "influence_reason_code"
+                ]
                 or "INFLUENCE_DIAGNOSTICS_UNAVAILABLE"
             )
 
         else:
-            candidate_record["analytical_result_status"] = "available"
-            candidate_record["analytical_result_reason_code"] = None
+            metric_record = metrics_by_candidate.get(
+                candidate_identity
+            )
+
+            candidate_predictions = (
+                predictions_by_candidate[
+                    candidate_identity
+                ]
+            )
+
+            candidate_calibration = (
+                calibration_by_candidate[
+                    candidate_identity
+                ]
+            )
+
+            if metric_record is None:
+                raise RuntimeError(f"Fitted candidate is missing validation metrics : {candidate_identity}")
+
+            predictive_r_squared = (
+                metric_record[
+                    "predictive_r_squared"
+                ]
+            )
+
+            if (
+                predictive_completed_required
+                and (
+                    metric_record[
+                        "predictive_r_squared_status"
+                    ]
+                    != "completed"
+                    or predictive_r_squared is None
+                )
+            ):
+                candidate_record[
+                    "predictive_benchmark_status"
+                ] = "unavailable"
+
+                candidate_record[
+                    "model_adequacy_status"
+                ] = "diagnostic_only"
+
+                candidate_record[
+                    "model_adequacy_reason_code"
+                ] = (
+                    "PREDICTIVE_BENCHMARK_UNAVAILABLE"
+                )
+
+            elif (
+                predictive_r_squared is not None
+                and predictive_r_squared
+                < r_squared_minimum
+            ):
+                candidate_record[
+                    "predictive_benchmark_status"
+                ] = "not_met"
+
+                candidate_record[
+                    "model_adequacy_status"
+                ] = "diagnostic_only"
+
+                candidate_record[
+                    "model_adequacy_reason_code"
+                ] = (
+                    "PREDICTIVE_BENCHMARK_NOT_MET"
+                )
+
+            else:
+                candidate_record[
+                    "predictive_benchmark_status"
+                ] = "met"
+
+                predictions_are_positive = (
+                    not positive_required
+                    or (
+                        bool(
+                            candidate_predictions
+                        )
+                        and all(
+                            prediction_record[
+                                "predicted_outcome"
+                            ] > 0
+                            for prediction_record in (
+                                candidate_predictions
+                            )
+                        )
+                    )
+                )
+
+                candidate_record[
+                    "prediction_domain_status"
+                ] = (
+                    "completed"
+                    if predictions_are_positive
+                    else "failed"
+                )
+
+                if not predictions_are_positive:
+                    candidate_record[
+                        "model_adequacy_status"
+                    ] = "diagnostic_only"
+
+                    candidate_record[
+                        "model_adequacy_reason_code"
+                    ] = (
+                        "NONPOSITIVE_OUT_OF_FOLD_PREDICTION"
+                    )
+
+                elif (
+                    interval_required
+                    and metric_record[
+                        "interval_metric_status"
+                    ] != "completed"
+                ):
+                    candidate_record[
+                        "prediction_interval_assessment_status"
+                    ] = "unavailable"
+
+                    candidate_record[
+                        "model_adequacy_status"
+                    ] = "diagnostic_only"
+
+                    candidate_record[
+                        "model_adequacy_reason_code"
+                    ] = (
+                        "PREDICTION_INTERVAL_ASSESSMENT_UNAVAILABLE"
+                    )
+
+                else:
+                    candidate_record[
+                        "prediction_interval_assessment_status"
+                    ] = (
+                        "completed"
+                        if metric_record[
+                            "interval_metric_status"
+                        ] == "completed"
+                        else "unavailable"
+                    )
+
+                    if calibration_required:
+                        expected_conditions = {
+                            observation_record[
+                                "condition_protocol_identity"
+                            ]
+                            for observation_record in prepared_models[
+                                candidate_identity
+                            ][
+                                "observation_records"
+                            ]
+                            if observation_record[
+                                "inside_evaluation_interval"
+                            ]
+                        }
+
+                        completed_calibration_conditions = {
+                            calibration_record[
+                                "condition_protocol_identity"
+                            ]
+                            for calibration_record in (
+                                candidate_calibration
+                            )
+                            if calibration_record[
+                                "calibration_status"
+                            ] == "completed"
+                        }
+
+                        calibration_complete = (
+                            expected_conditions
+                            == completed_calibration_conditions
+                        )
+
+                    else:
+                        calibration_complete = True
+
+                    candidate_record[
+                        "condition_calibration_assessment_status"
+                    ] = (
+                        "completed"
+                        if calibration_complete
+                        else "unavailable"
+                    )
+
+                    if not calibration_complete:
+                        candidate_record[
+                            "model_adequacy_status"
+                        ] = "diagnostic_only"
+
+                        candidate_record[
+                            "model_adequacy_reason_code"
+                        ] = (
+                            "CONDITION_CALIBRATION_INCOMPLETE"
+                        )
+
+                    else:
+                        candidate_record[
+                            "model_adequacy_status"
+                        ] = "qualified"
+
+                        candidate_record[
+                            "model_adequacy_reason_code"
+                        ] = None
+
+        if candidate_record[
+            "model_adequacy_status"
+        ] == "qualified":
+            candidate_record[
+                "analytical_result_status"
+            ] = "available"
+
+            candidate_record[
+                "analytical_result_reason_code"
+            ] = None
+
+        else:
+            candidate_record[
+                "analytical_result_status"
+            ] = candidate_record[
+                "model_adequacy_status"
+            ]
+
+            candidate_record[
+                "analytical_result_reason_code"
+            ] = candidate_record[
+                "model_adequacy_reason_code"
+            ]
 
 
 # Confirming complete candidate and result reconciliation
@@ -15936,34 +16618,25 @@ def resolve_completed_analysis_status(estimator_outcomes: dict) -> str:
 
 
 # Resolving analytical handoff availability
-def resolve_analytical_handoff_status(candidate_status_counts: Counter, contrast_status_counts: Counter,
-                                      unavailable_estimator_families: list[str]
-) -> str:
-    if contrast_status_counts[
-        "completed"
+def resolve_analytical_handoff_status(candidate_status_counts: Counter, unavailable_estimator_families: list[str]) -> str:
+    if candidate_status_counts[
+        "available"
     ] == 0:
         return (
-            "not_ready_no_validated_contrasts"
-        )
-
-    if unavailable_estimator_families:
-        return (
-            "ready_with_model_family_and_candidate_restrictions"
+            "not_ready_no_analytically_qualified_trajectory_models"
         )
 
     if (
-        candidate_status_counts[
-            "diagnostic_only"
-        ] > 0
+        unavailable_estimator_families
         or candidate_status_counts[
-            "available_with_influence_limitation"
+            "diagnostic_only"
         ] > 0
     ):
         return (
-            "ready_with_candidate_restrictions"
+            "ready_for_continuous_trajectory_analysis_with_model_family_and_candidate_restrictions"
         )
 
-    return "ready"
+    return ("ready_for_continuous_trajectory_analysis")
 
 
 # Summarizing downstream analytical availability
@@ -15992,9 +16665,6 @@ def build_analytical_handoff_summary(candidate_records: list[dict], contrast_rec
             candidate_status_counts = (
                 candidate_status_counts
             ),
-            contrast_status_counts = (
-                contrast_status_counts
-            ),
             unavailable_estimator_families = (
                 unavailable_estimator_families
             )
@@ -16010,6 +16680,79 @@ def build_analytical_handoff_summary(candidate_records: list[dict], contrast_rec
             sorted(contrast_status_counts.items())
         ),
         "unavailable_estimator_families": unavailable_estimator_families
+    }
+
+
+# Summarizing diagnostic-only analytical qualification reasons for reporting
+def build_analytical_qualification_summary(candidate_records: list[dict]) -> dict:
+    fitted_diagnostic_candidates = [
+        candidate_record
+        for candidate_record in candidate_records
+        if (
+            candidate_record.get(
+                "final_disposition"
+            )
+            == "fitted"
+            and candidate_record.get(
+                "model_adequacy_status"
+            )
+            == "diagnostic_only"
+        )
+    ]
+
+    adequacy_reason_counts = Counter(
+        candidate_record[
+            "model_adequacy_reason_code"
+        ]
+        for candidate_record in (
+            fitted_diagnostic_candidates
+        )
+    )
+
+    if None in adequacy_reason_counts:
+        raise RuntimeError("Diagnostic-only fitted candidate is missing its adequacy reason code.")
+
+    adequacy_reason_counts_by_estimator = {}
+
+    for candidate_record in (
+        fitted_diagnostic_candidates
+    ):
+        estimator_name = candidate_record[
+            "estimator"
+        ]
+
+        reason_code = candidate_record[
+            "model_adequacy_reason_code"
+        ]
+
+        adequacy_reason_counts_by_estimator.setdefault(
+            estimator_name,
+            Counter()
+        )[
+            reason_code
+        ] += 1
+
+    return {
+        "diagnostic_only_candidate_count": len(
+            fitted_diagnostic_candidates
+        ),
+        "model_adequacy_reason_counts": {
+            reason_code: reason_count
+            for reason_code, reason_count in sorted(
+                adequacy_reason_counts.items()
+            )
+        },
+        "model_adequacy_reason_counts_by_estimator": {
+            estimator_name: {
+                reason_code: reason_count
+                for reason_code, reason_count in sorted(
+                    estimator_reason_counts.items()
+                )
+            }
+            for estimator_name, estimator_reason_counts in sorted(
+                adequacy_reason_counts_by_estimator.items()
+            )
+        }
     }
 
 
@@ -16063,6 +16806,12 @@ def build_descriptive_modeling_report(validated_inputs: dict, workflow_results: 
 
     fitted_result_availability = (
         build_fitted_result_availability(
+            candidate_records
+        )
+    )
+
+    analytical_qualification_summary = (
+        build_analytical_qualification_summary(
             candidate_records
         )
     )
@@ -16142,6 +16891,9 @@ def build_descriptive_modeling_report(validated_inputs: dict, workflow_results: 
         "template_outcomes": template_outcomes,
         "fitted_result_availability": (
             fitted_result_availability
+        ),
+        "analytical_qualification_summary": (
+            analytical_qualification_summary
         ),
         "reconciliation": workflow_results[
             "reconciliation"
@@ -16485,10 +17237,9 @@ def validate_descriptive_modeling_report(report: dict, modeling_policy: dict) ->
         raise RuntimeError("Analytical handoff contains an invalid field set.")
 
     if analytical_handoff["analytical_handoff_status"] not in {
-        "ready",
-        "ready_with_candidate_restrictions",
-        "ready_with_model_family_and_candidate_restrictions",
-        "not_ready_no_validated_contrasts"
+        "ready_for_continuous_trajectory_analysis",
+        "ready_for_continuous_trajectory_analysis_with_model_family_and_candidate_restrictions",
+        "not_ready_no_analytically_qualified_trajectory_models"
     }:
         raise RuntimeError("Analytical handoff status is invalid.")
 
@@ -16613,9 +17364,6 @@ def validate_descriptive_modeling_report(report: dict, modeling_policy: dict) ->
             candidate_status_counts = Counter(
                 candidate_analytical_status_counts
             ),
-            contrast_status_counts = Counter(
-                contrast_status_counts
-            ),
             unavailable_estimator_families = (
                 expected_unavailable_estimators
             )
@@ -16630,6 +17378,144 @@ def validate_descriptive_modeling_report(report: dict, modeling_policy: dict) ->
     ):
         raise RuntimeError("Analytical handoff status does not reconcile.")
 
+    analytical_qualification_summary = report.get(
+        "analytical_qualification_summary"
+    )
+
+    if not isinstance(
+        analytical_qualification_summary,
+        dict
+    ):
+        raise RuntimeError("Descriptive-modeling report does not contain an analytical qualification summary.")
+
+    if set(
+        analytical_qualification_summary
+    ) != {
+        "diagnostic_only_candidate_count",
+        "model_adequacy_reason_counts",
+        "model_adequacy_reason_counts_by_estimator"
+    }:
+        raise RuntimeError("Analytical qualification summary contains an invalid field set.")
+
+    diagnostic_only_candidate_count = (
+        analytical_qualification_summary[
+            "diagnostic_only_candidate_count"
+        ]
+    )
+
+    if (
+        not isinstance(
+            diagnostic_only_candidate_count,
+            int
+        )
+        or isinstance(
+            diagnostic_only_candidate_count,
+            bool
+        )
+        or diagnostic_only_candidate_count < 0
+    ):
+        raise RuntimeError("Analytical qualification summary contains an invalid diagnostic-only candidate count.")
+
+    model_adequacy_reason_counts = (
+        analytical_qualification_summary[
+            "model_adequacy_reason_counts"
+        ]
+    )
+
+    if not isinstance(
+        model_adequacy_reason_counts,
+        dict
+    ):
+        raise RuntimeError("Analytical qualification summary contains an invalid reason-count mapping.")
+
+    if any(
+        not isinstance(reason_code, str)
+        or not reason_code
+        or not isinstance(reason_count, int)
+        or isinstance(reason_count, bool)
+        or reason_count < 0
+        for reason_code, reason_count in (
+            model_adequacy_reason_counts.items()
+        )
+    ):
+        raise RuntimeError("Analytical qualification summary contains an invalid reason-count entry.")
+
+    if sum(
+        model_adequacy_reason_counts.values()
+    ) != diagnostic_only_candidate_count:
+        raise RuntimeError("Analytical qualification reason counts do not reconcile to the diagnostic-only candidate count.")
+
+    model_adequacy_reason_counts_by_estimator = (
+        analytical_qualification_summary[
+            "model_adequacy_reason_counts_by_estimator"
+        ]
+    )
+
+    if not isinstance(
+        model_adequacy_reason_counts_by_estimator,
+        dict
+    ):
+        raise RuntimeError("Analytical qualification summary contains an invalid estimator breakdown.")
+
+    if not set(
+        model_adequacy_reason_counts_by_estimator
+    ).issubset(
+        expected_estimator_names
+    ):
+        raise RuntimeError("Analytical qualification summary references an unknown estimator.")
+
+    aggregated_estimator_reason_counts = Counter()
+
+    for (
+        estimator_name,
+        estimator_reason_counts
+    ) in model_adequacy_reason_counts_by_estimator.items():
+        if not isinstance(
+            estimator_reason_counts,
+            dict
+        ):
+            raise RuntimeError(
+                f"Analytical qualification summary contains an invalid estimator reason mapping : {estimator_name}"
+            )
+
+        if any(
+            not isinstance(reason_code, str)
+            or not reason_code
+            or not isinstance(reason_count, int)
+            or isinstance(reason_count, bool)
+            or reason_count < 0
+            for reason_code, reason_count in (
+                estimator_reason_counts.items()
+            )
+        ):
+            raise RuntimeError(
+                f"Analytical qualification summary contains an invalid estimator reason entry : {estimator_name}"
+            )
+
+        aggregated_estimator_reason_counts.update(
+            estimator_reason_counts
+        )
+
+    if dict(
+        sorted(
+            aggregated_estimator_reason_counts.items()
+        )
+    ) != dict(
+        sorted(
+            model_adequacy_reason_counts.items()
+        )
+    ):
+        raise RuntimeError("Analytical qualification summary estimator breakdown does not reconcile to the reason counts.")
+
+    if (
+        candidate_analytical_status_counts.get(
+            "diagnostic_only",
+            0
+        )
+        != diagnostic_only_candidate_count
+    ):
+        raise RuntimeError("Analytical qualification summary does not reconcile to the analytical handoff.")
+    
 
 # Writing and validating a complete staged analytical artifact set
 def stage_descriptive_modeling_artifacts(validated_inputs: dict, workflow_results: dict,
@@ -17254,7 +18140,18 @@ def execute_descriptive_modeling_workflow(validated_inputs: dict) -> dict:
     )
 
     assign_candidate_analytical_result_status(
-        candidate_records
+        candidate_records = candidate_records,
+        prepared_models = prepared_models,
+        validation_metric_records = (
+            validation_metric_records
+        ),
+        validation_prediction_records = (
+            validation_prediction_records
+        ),
+        condition_calibration_records = (
+            condition_calibration_records
+        ),
+        modeling_policy = modeling_policy
     )
 
     contrast_records = build_model_contrasts(
@@ -17272,6 +18169,22 @@ def execute_descriptive_modeling_workflow(validated_inputs: dict) -> dict:
         ][
             "condition_features"
         ],
+        approved_discrete_horizons = (
+            validated_inputs[
+                "design_report"
+            ][
+                "horizon_selection_policy"
+            ][
+                "approved_discrete_horizons"
+            ]
+        ),
+        discrete_horizon_status = (
+            validated_inputs[
+                "design_report"
+            ][
+                "discrete_comparison_horizon_status"
+            ]
+        ),
         modeling_policy = modeling_policy
     )
 

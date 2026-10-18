@@ -3,9 +3,11 @@ import json
 import math
 import numpy as np
 import pytest
+import warnings
 
 from pathlib import Path
 from collections import Counter
+from collections.abc import Callable
 
 import scripts.run_descriptive_models as descriptive_models
 
@@ -3334,14 +3336,13 @@ def build_contrast_condition(condition_identity: str, reference_test_schedule: s
     }
 
 
-# Confirming authorized condition contrasts and uncertainty
-def test_build_model_contrasts() -> None:
+# Confirming that unauthorized discrete horizons suppress point contrasts
+def test_build_model_contrasts_requires_approved_horizons() -> None:
     modeling_policy = load_test_policy()
 
     first_condition_identity = (
         "Stage_1/TP_k01/initial_and_final_only"
     )
-
     second_condition_identity = (
         "Stage_1/TP_k01/periodic_reference_tests"
     )
@@ -3350,22 +3351,16 @@ def test_build_model_contrasts() -> None:
         "candidate_identity": "candidate-1",
         "fit_identity": "fit-1",
         "support_region_identity": "region-1",
-        "template_name": (
-            "linear_common_trajectory"
-        ),
+        "template_name": "linear_common_trajectory",
         "estimator": "weighted_least_squares",
         "aging_mode": "calendar_aging",
         "design_scope": "Stage_1",
         "outcome": "relative_capacity",
         "cohort": "primary",
         "horizon_axis": "elapsed_calendar_days",
-        "context_family": (
-            "no_additional_context"
-        ),
+        "context_family": "no_additional_context",
         "horizon_basis": "linear",
-        "include_horizon_by_treatment_interactions": (
-            False
-        ),
+        "include_horizon_by_treatment_interactions": False,
         "support_interval_minimum": "10.0",
         "support_interval_maximum": "20.0",
         "support_interval_lower_inclusive": "true",
@@ -3379,446 +3374,73 @@ def test_build_model_contrasts() -> None:
         "analytical_result_reason_code": None
     }
 
-    model_encoding = {
-        "horizon_basis": "linear",
-        "horizon_mean": 15.0,
-        "horizon_standard_deviation": 5.0,
-        "spline_knots": None,
-        "unique_horizon_count": 2,
-        "non_boundary_unique_horizon_count": None,
-        "ordered_source_terms": [
-            {
-                "term_name": (
-                    "reference_test_schedule="
-                    "periodic_reference_tests"
-                ),
-                "term_type": "target_treatment"
-            }
-        ],
-        "source_term_encodings": {
-            (
-                "reference_test_schedule="
-                "periodic_reference_tests"
-            ): {
-                "encoding_type": (
-                    "categorical_indicator"
-                ),
-                "field_name": (
-                    "reference_test_schedule"
-                ),
-                "level_name": (
-                    "periodic_reference_tests"
-                ),
-                "observed_levels": [
-                    "initial_and_final_only",
-                    "periodic_reference_tests"
-                ]
-            }
-        },
-        "context_encodings": []
-    }
-
-    matrix_terms = [
-        {
-            "column_name": "intercept",
-            "term_type": "intercept",
-            "source_term_name": None,
-            "horizon_basis_name": None
-        },
-        {
-            "column_name": "horizon_linear",
-            "term_type": "horizon_basis",
-            "source_term_name": None,
-            "horizon_basis_name": "horizon_linear"
-        },
-        {
-            "column_name": (
-                "reference_test_schedule="
-                "periodic_reference_tests"
-            ),
-            "term_type": "target_treatment",
-            "source_term_name": (
-                "reference_test_schedule=periodic_reference_tests"
-            ),
-            "horizon_basis_name": None
-        }
-    ]
-
     prepared_model = {
         "candidate_identity": "candidate-1",
         "fit_identity": "fit-1",
         "candidate_record": candidate_record,
-        "model_encoding": model_encoding,
-        "matrix_terms": matrix_terms,
+        "model_encoding": {
+            "horizon_basis": "linear",
+            "horizon_mean": 15.0,
+            "horizon_standard_deviation": 5.0,
+            "spline_knots": None,
+            "ordered_source_terms": [],
+            "source_term_encodings": {},
+            "context_encodings": []
+        },
+        "matrix_terms": [],
         "observation_records": [
-            {
-                "source_identity": "source-1",
-                "cell_identity": "cell-1",
-                "condition_protocol_identity": (
-                    first_condition_identity
-                ),
-                "horizon": 10.0
-            },
-            {
-                "source_identity": "source-2",
-                "cell_identity": "cell-2",
-                "condition_protocol_identity": (
-                    second_condition_identity
-                ),
-                "horizon": 10.0
-            },
-            {
-                "source_identity": "source-3",
-                "cell_identity": "cell-1",
-                "condition_protocol_identity": (
-                    first_condition_identity
-                ),
-                "horizon": 20.0
-            },
-            {
-                "source_identity": "source-4",
-                "cell_identity": "cell-2",
-                "condition_protocol_identity": (
-                    second_condition_identity
-                ),
-                "horizon": 20.0
-            }
+            {"condition_protocol_identity": first_condition_identity,
+             "horizon": 10.0},
+            {"condition_protocol_identity": second_condition_identity,
+             "horizon": 10.0}
         ]
-    }
-
-    fitted_model = {
-        "coefficients": np.asarray(
-            [
-                1.0,
-                -0.1,
-                0.05
-            ],
-            dtype = float
-        ),
-        "jackknife_covariance": np.diag(
-            [
-                0.0004,
-                0.0004,
-                0.0001
-            ]
-        ),
-        "jackknife_degrees_of_freedom": 5
     }
 
     estimand_record = {
         "aging_mode": "calendar_aging",
-        "decision_scope": (
-            "condition_protocol_pair"
-        ),
-        "first_condition_protocol_identity": (
-            first_condition_identity
-        ),
-        "second_condition_protocol_identity": (
-            second_condition_identity
-        ),
+        "decision_scope": "condition_protocol_pair",
+        "first_condition_protocol_identity": first_condition_identity,
+        "second_condition_protocol_identity": second_condition_identity,
         "outcome": "relative_capacity",
         "cohort": "primary",
         "horizon_axis": "elapsed_calendar_days",
         "target_estimand_available": "true",
-        "final_support_classification": (
-            "supported_with_restrictions"
-        ),
+        "final_support_classification": "supported_with_restrictions",
         "permitted_bracketing_ranges": (
             '[{"minimum":10.0,"maximum":20.0}]'
         ),
-        "restriction_reasons": (
-            '["ASSIGNMENT_MECHANISM_NOT_ESTABLISHED"]'
-        )
+        "restriction_reasons": "[]"
     }
 
+    condition_records = [
+        build_contrast_condition(
+            condition_identity = first_condition_identity,
+            reference_test_schedule = "initial_and_final_only"
+        ),
+        build_contrast_condition(
+            condition_identity = second_condition_identity,
+            reference_test_schedule = "periodic_reference_tests"
+        )
+    ]
+
     contrast_records = build_model_contrasts(
-        prepared_models = {
-            "candidate-1": prepared_model
-        },
-        fitted_models_by_candidate = {
-            "candidate-1": fitted_model
-        },
-        estimand_records = [
-            estimand_record
-        ],
-        condition_records = [
-            build_contrast_condition(
-                condition_identity = (
-                    first_condition_identity
-                ),
-                reference_test_schedule = (
-                    "initial_and_final_only"
-                )
-            ),
-            build_contrast_condition(
-                condition_identity = (
-                    second_condition_identity
-                ),
-                reference_test_schedule = (
-                    "periodic_reference_tests"
-                )
-            )
-        ],
+        prepared_models = {"candidate-1": prepared_model},
+        fitted_models_by_candidate = {},
+        estimand_records = [estimand_record],
+        condition_records = condition_records,
+        approved_discrete_horizons = [],
+        discrete_horizon_status = (
+            "not_authorized_without_outcome_blind_pre_specification"
+        ),
         modeling_policy = modeling_policy
     )
 
-    assert len(
-        contrast_records
-    ) == 2
-
-    assert {
-        contrast_record[
-            "horizon"
-        ]
-        for contrast_record in contrast_records
-    } == {
-        10.0,
-        20.0
-    }
-
-    assert all(
-        contrast_record[
-            "contrast_status"
-        ]
-        == "completed"
-        for contrast_record in contrast_records
+    assert len(contrast_records) == 1
+    assert contrast_records[0]["contrast_status"] == "unavailable"
+    assert contrast_records[0]["contrast_reason_code"] == (
+        "DISCRETE_HORIZON_NOT_AUTHORIZED"
     )
-
-    assert all(
-        contrast_record[
-            "contrast_estimate"
-        ]
-        == pytest.approx(
-            0.05
-        )
-        for contrast_record in contrast_records
-    )
-
-    assert all(
-        contrast_record[
-            "uncertainty_status"
-        ]
-        == "completed"
-        for contrast_record in contrast_records
-    )
-
-    assert all(
-        contrast_record[
-            "confidence_interval_lower"
-        ]
-        < contrast_record[
-            "contrast_estimate"
-        ]
-        < contrast_record[
-            "confidence_interval_upper"
-        ]
-        for contrast_record in contrast_records
-    )
-
-    assert len(
-        {
-            contrast_record[
-                "estimand_decision_identity"
-            ]
-            for contrast_record in contrast_records
-        }
-    ) == 1
-
-    candidate_record[
-        "validation_status"
-    ] = "unavailable"
-
-    candidate_record[
-        "validation_reason_code"
-    ] = (
-        "GROUPED_VALIDATION_UNAVAILABLE"
-    )
-
-    diagnostic_contrasts = (
-        build_model_contrasts(
-            prepared_models = {
-                "candidate-1": prepared_model
-            },
-            fitted_models_by_candidate = {
-                "candidate-1": fitted_model
-            },
-            estimand_records = [
-                estimand_record
-            ],
-            condition_records = [
-                build_contrast_condition(
-                    condition_identity = (
-                        first_condition_identity
-                    ),
-                    reference_test_schedule = (
-                        "initial_and_final_only"
-                    )
-                ),
-                build_contrast_condition(
-                    condition_identity = (
-                        second_condition_identity
-                    ),
-                    reference_test_schedule = (
-                        "periodic_reference_tests"
-                    )
-                )
-            ],
-            modeling_policy = modeling_policy
-        )
-    )
-
-    assert all(
-        contrast_record[
-            "contrast_status"
-        ] == "diagnostic_only"
-        for contrast_record in (
-            diagnostic_contrasts
-        )
-    )
-
-    assert all(
-        contrast_record[
-            "contrast_reason_code"
-        ] == "GROUPED_VALIDATION_UNAVAILABLE"
-        for contrast_record in (
-            diagnostic_contrasts
-        )
-    )
-
-    candidate_record[
-        "validation_status"
-    ] = "completed"
-
-    candidate_record[
-        "validation_reason_code"
-    ] = None
-
-    fitted_model[
-        "jackknife_covariance"
-    ] = None
-
-    uncertainty_limited_contrasts = (
-        build_model_contrasts(
-            prepared_models = {
-                "candidate-1": prepared_model
-            },
-            fitted_models_by_candidate = {
-                "candidate-1": fitted_model
-            },
-            estimand_records = [
-                estimand_record
-            ],
-            condition_records = [
-                build_contrast_condition(
-                    condition_identity = (
-                        first_condition_identity
-                    ),
-                    reference_test_schedule = (
-                        "initial_and_final_only"
-                    )
-                ),
-                build_contrast_condition(
-                    condition_identity = (
-                        second_condition_identity
-                    ),
-                    reference_test_schedule = (
-                        "periodic_reference_tests"
-                    )
-                )
-            ],
-            modeling_policy = modeling_policy
-        )
-    )
-
-    assert all(
-        contrast_record[
-            "contrast_status"
-        ] == "diagnostic_only"
-        for contrast_record in (
-            uncertainty_limited_contrasts
-        )
-    )
-
-    assert all(
-        contrast_record[
-            "uncertainty_status"
-        ] == "unavailable"
-        for contrast_record in (
-            uncertainty_limited_contrasts
-        )
-    )
-
-    fitted_model[
-        "jackknife_covariance"
-    ] = np.diag(
-        [
-            0.0004,
-            0.0004,
-            0.0001
-        ]
-    )
-
-    fitted_model[
-        "coefficients"
-    ] = np.asarray(
-        [
-            -1.0,
-            0.0,
-            0.0
-        ],
-        dtype = float
-    )
-
-    nonpositive_contrasts = (
-        build_model_contrasts(
-            prepared_models = {
-                "candidate-1": prepared_model
-            },
-            fitted_models_by_candidate = {
-                "candidate-1": fitted_model
-            },
-            estimand_records = [
-                estimand_record
-            ],
-            condition_records = [
-                build_contrast_condition(
-                    condition_identity = (
-                        first_condition_identity
-                    ),
-                    reference_test_schedule = (
-                        "initial_and_final_only"
-                    )
-                ),
-                build_contrast_condition(
-                    condition_identity = (
-                        second_condition_identity
-                    ),
-                    reference_test_schedule = (
-                        "periodic_reference_tests"
-                    )
-                )
-            ],
-            modeling_policy = modeling_policy
-        )
-    )
-
-    assert all(
-        contrast_record[
-            "contrast_status"
-        ] == "unavailable"
-        for contrast_record in (
-            nonpositive_contrasts
-        )
-    )
-
-    assert all(
-        contrast_record[
-            "contrast_reason_code"
-        ] == "NONPOSITIVE_RATIO_PREDICTION"
-        for contrast_record in (
-            nonpositive_contrasts
-        )
-    )
+    assert contrast_records[0]["horizon"] is None
 
 
 # Confirming that laboratory-adjusted contrasts require shared allocation
@@ -3950,6 +3572,10 @@ def test_build_model_contrasts_rejects_different_laboratories() -> None:
             first_condition,
             second_condition
         ],
+        approved_discrete_horizons = [],
+        discrete_horizon_status = (
+            "not_authorized_without_outcome_blind_pre_specification"
+        ),
         modeling_policy = modeling_policy
     )
 
@@ -6096,6 +5722,8 @@ def test_common_trajectory_inadmissible_without_repeated_cells() -> None:
 
 # Assignment of downstream analytical availability from fit outcomes
 def test_assign_candidate_analytical_result_status() -> None:
+    modeling_policy = load_test_policy()
+
     candidate_records = [
         {
             "candidate_identity": "a",
@@ -6128,8 +5756,48 @@ def test_assign_candidate_analytical_result_status() -> None:
         }
     ]
 
+    prepared_models = {
+        "a": {
+            "observation_records": [
+                {"condition_protocol_identity": "condition-a",
+                 "inside_evaluation_interval": True}
+            ]
+        },
+        "b": {"observation_records": []},
+        "c": {"observation_records": []}
+    }
+
+    validation_metric_records = [
+        {
+            "candidate_identity": "a",
+            "predictive_r_squared": 0.5,
+            "predictive_r_squared_status": "completed",
+            "interval_metric_status": "completed"
+        }
+    ]
+
+    validation_prediction_records = [
+        {
+            "candidate_identity": "a",
+            "predicted_outcome": 0.9
+        }
+    ]
+
+    condition_calibration_records = [
+        {
+            "candidate_identity": "a",
+            "condition_protocol_identity": "condition-a",
+            "calibration_status": "completed"
+        }
+    ]
+
     assign_candidate_analytical_result_status(
-        candidate_records
+        candidate_records = candidate_records,
+        prepared_models = prepared_models,
+        validation_metric_records = validation_metric_records,
+        validation_prediction_records = validation_prediction_records,
+        condition_calibration_records = condition_calibration_records,
+        modeling_policy = modeling_policy
     )
 
     by_identity = {
@@ -6139,6 +5807,7 @@ def test_assign_candidate_analytical_result_status() -> None:
 
     assert by_identity["a"]["analytical_result_status"] == "available"
     assert by_identity["a"]["numerical_fit_status"] == "completed"
+    assert by_identity["a"]["model_adequacy_status"] == "qualified"
 
     assert by_identity["b"]["analytical_result_status"] == "diagnostic_only"
     assert by_identity["b"]["analytical_result_reason_code"] == (
@@ -6201,7 +5870,7 @@ def test_build_analytical_handoff_summary() -> None:
         "linear_mixed_effects"
     ]
     assert summary["analytical_handoff_status"] == (
-        "ready_with_model_family_and_candidate_restrictions"
+        "ready_for_continuous_trajectory_analysis_with_model_family_and_candidate_restrictions"
     )
 
 
@@ -6434,7 +6103,7 @@ def test_validate_report_rejects_registration_status_mismatch() -> None:
                                        "validation":  {"completed": 0, "unavailable": 0},
                                        "influence":   {"completed": 0, "unavailable": 0}},
         "analytical_handoff": {
-            "analytical_handoff_status": "not_ready_no_validated_contrasts",
+            "analytical_handoff_status": "not_ready_no_analytically_qualified_trajectory_models",
             "candidate_analytical_status_counts": {},
             "contrast_status_counts": {},
             "unavailable_estimator_families": [],
@@ -6486,7 +6155,7 @@ def test_validate_report_rejects_invalid_separation_declaration(field_name: str,
             "influence": {"completed": 0, "unavailable": 0}
         },
         "analytical_handoff": {
-            "analytical_handoff_status": "not_ready_no_validated_contrasts",
+            "analytical_handoff_status": "not_ready_no_analytically_qualified_trajectory_models",
             "candidate_analytical_status_counts": {},
             "contrast_status_counts": {},
             "unavailable_estimator_families": []
@@ -6700,12 +6369,10 @@ def test_modeling_pipeline_preserves_training_and_evaluation_contract() -> None:
 
     retained_templates = {
         (
-            "restricted_cubic_spline_"
-            "common_trajectory"
+            "restricted_cubic_spline_common_trajectory"
         ),
         (
-            "restricted_cubic_spline_"
-            "differential_trajectory"
+            "restricted_cubic_spline_differential_trajectory"
         )
     }
 
@@ -6830,15 +6497,13 @@ def test_modeling_pipeline_preserves_training_and_evaluation_contract() -> None:
 
     common_candidate = candidates_by_template[
         (
-            "restricted_cubic_spline_"
-            "common_trajectory"
+            "restricted_cubic_spline_common_trajectory"
         )
     ]
 
     differential_candidate = candidates_by_template[
         (
-            "restricted_cubic_spline_"
-            "differential_trajectory"
+            "restricted_cubic_spline_differential_trajectory"
         )
     ]
 
@@ -6916,6 +6581,11 @@ def test_modeling_pipeline_preserves_training_and_evaluation_contract() -> None:
         modeling_policy = modeling_policy
     )
 
+    condition_calibration_records = build_condition_calibration(
+        prepared_models = prepared_models,
+        prediction_records = validation_prediction_records
+    )
+
     assert validation_fold_records
 
     observations_by_key = {
@@ -6962,13 +6632,16 @@ def test_modeling_pipeline_preserves_training_and_evaluation_contract() -> None:
     assert differential_candidate[
         "validation_reason_code"
     ] == (
-        "TRAINING_FOLD_"
-        "INSUFFICIENT_RESIDUAL_INDEPENDENT_"
-        "CELL_DEGREES_OF_FREEDOM"
+        "TRAINING_FOLD_INSUFFICIENT_RESIDUAL_INDEPENDENT_CELL_DEGREES_OF_FREEDOM"
     )
 
     assign_candidate_analytical_result_status(
-        candidate_records
+        candidate_records = candidate_records,
+        prepared_models = prepared_models,
+        validation_metric_records = validation_metric_records,
+        validation_prediction_records = validation_prediction_records,
+        condition_calibration_records = condition_calibration_records,
+        modeling_policy = modeling_policy
     )
 
     assert common_candidate[
@@ -7049,57 +6722,31 @@ def test_modeling_pipeline_preserves_training_and_evaluation_contract() -> None:
             first_condition_record,
             second_condition_record
         ],
+        approved_discrete_horizons = [],
+        discrete_horizon_status = (
+            "not_authorized_without_outcome_blind_pre_specification"
+        ),
         modeling_policy = modeling_policy
     )
 
     common_contrasts = [
         contrast_record
         for contrast_record in contrast_records
-        if contrast_record[
-            "candidate_identity"
-        ] == common_candidate[
-            "candidate_identity"
-        ]
+        if contrast_record["candidate_identity"] == common_candidate["candidate_identity"]
     ]
 
     differential_contrasts = [
         contrast_record
         for contrast_record in contrast_records
-        if contrast_record[
-            "candidate_identity"
-        ] == differential_candidate[
-            "candidate_identity"
-        ]
+        if contrast_record["candidate_identity"] == differential_candidate["candidate_identity"]
     ]
 
     assert common_contrasts
-
-    assert all(
-        contrast_record[
-            "contrast_status"
-        ] == "completed"
-        for contrast_record in common_contrasts
-    )
-
     assert differential_contrasts
-
     assert all(
-        contrast_record[
-            "contrast_status"
-        ] == "diagnostic_only"
-        for contrast_record in (
-            differential_contrasts
-        )
-    )
-
-    assert any(
-        contrast_record[
-            "model_based_interpolation"
-        ]
-        is True
-        for contrast_record in (
-            differential_contrasts
-        )
+        contrast_record["contrast_status"] == "unavailable"
+        and contrast_record["contrast_reason_code"] == "DISCRETE_HORIZON_NOT_AUTHORIZED"
+        for contrast_record in contrast_records
     )
 
     negative_coefficients = np.zeros_like(
@@ -7148,6 +6795,21 @@ def test_modeling_pipeline_preserves_training_and_evaluation_contract() -> None:
                 first_condition_record,
                 second_condition_record
             ],
+            approved_discrete_horizons = [
+                {
+                    "aging_mode": "calendar_aging",
+                    "horizon_axis": "elapsed_calendar_days",
+                    "horizon": 10.0,
+                    "analysis_role": "primary",
+                    "interpolation_rule": "within_cell_bracketing",
+                    "maximum_bracketing_span": None,
+                    "rationale": "Test-authorized horizon.",
+                    "source": "test"
+                }
+            ],
+            discrete_horizon_status = (
+                "authorized_with_outcome_blind_pre_specification"
+            ),
             modeling_policy = modeling_policy
         )
     )
@@ -7170,6 +6832,11 @@ def test_modeling_pipeline_preserves_training_and_evaluation_contract() -> None:
         for contrast_record in (
             nonpositive_contrasts
         )
+    )
+
+    assert all(
+        contrast_record["horizon"] == 10.0
+        for contrast_record in nonpositive_contrasts
     )
 
     disposition_counts = (
@@ -7264,29 +6931,844 @@ def test_modeling_pipeline_preserves_training_and_evaluation_contract() -> None:
         contrast_records
     )
 
-    assert analytical_handoff[
-        "candidate_analytical_status_counts"
-    ] == {
-        "available": 1,
-        "diagnostic_only": 1
-    }
-
-    assert analytical_handoff[
-        "contrast_status_counts"
-    ][
-        "completed"
-    ] == len(
-        common_contrasts
+    assert sum(
+        analytical_handoff[
+            "candidate_analytical_status_counts"
+        ].values()
+    ) == len(
+        candidate_records
     )
 
     assert analytical_handoff[
         "contrast_status_counts"
-    ][
-        "diagnostic_only"
-    ] == len(
-        differential_contrasts
+    ].get(
+        "completed",
+        0
+    ) == 0
+    
+    assert analytical_handoff[
+        "contrast_status_counts"
+    ].get(
+        "diagnostic_only",
+        0
+    ) == 0
+    
+    assert analytical_handoff[
+        "contrast_status_counts"
+    ].get(
+        "unavailable",
+        0
+    ) == len(
+        contrast_records
     )
-
+    
     assert analytical_handoff[
         "analytical_handoff_status"
-    ] == "ready_with_candidate_restrictions"
+    ] in {
+        "ready_for_continuous_trajectory_analysis",
+        "ready_for_continuous_trajectory_analysis_with_model_family_and_candidate_restrictions",
+        "not_ready_no_analytically_qualified_trajectory_models"
+    }
+
+
+# Confirming the mixed-effects warning categories
+@pytest.mark.parametrize(
+    ("warning_message", "expected_code"),
+    [
+        ("MixedLM optimization failed", "optimizer_nonconvergence"),
+        ("Gradient optimization failed.", "optimizer_nonconvergence"),
+        (
+            "The fit obtained converged to the boundary of the parameter space.",
+            "parameter_boundary",
+        ),
+        (
+            "The random effects covariance is singular.",
+            "random_effect_covariance_singular",
+        ),
+        (
+            "The Hessian matrix at the estimated parameters is not positive definite.",
+            "hessian_not_positive_definite",
+        ),
+        ("Some unfamiliar warning text.", "unclassified_warning"),
+    ]
+)
+def test_classify_mixed_effects_warning(warning_message: str, expected_code: str) -> None:
+    assert descriptive_models.classify_mixed_effects_warning(
+        warning_message
+    ) == expected_code
+
+
+# Accepting a symmetric positive-semidefinite covariance
+def test_validate_fixed_effect_covariance_accepts_psd() -> None:
+    covariance_matrix = np.array(
+        [
+            [1.0, 0.2],
+            [0.2, 0.5]
+        ],
+        dtype = float
+    )
+
+    symmetric, tolerance = descriptive_models.validate_fixed_effect_covariance(
+        covariance_matrix
+    )
+
+    assert symmetric.shape == (2, 2)
+    assert math.isfinite(tolerance)
+    assert np.allclose(symmetric, symmetric.T)
+
+
+# Rejecting a materially indefinite covariance
+def test_validate_fixed_effect_covariance_rejects_indefinite() -> None:
+    covariance_matrix = np.array(
+        [
+            [1.0, 2.0],
+            [2.0, 1.0]
+        ],
+        dtype = float
+    )
+
+    with pytest.raises(
+        ValueError,
+        match = "not positive semidefinite"
+    ):
+        descriptive_models.validate_fixed_effect_covariance(
+            covariance_matrix
+        )
+
+
+# Rejecting a non-finite covariance matrix
+def test_validate_fixed_effect_covariance_rejects_non_finite() -> None:
+    covariance_matrix = np.array(
+        [[1.0, 0.0], [0.0, float("nan")]],
+        dtype = float
+    )
+
+    with pytest.raises(
+        ValueError,
+        match = "not finite and square"
+    ):
+        descriptive_models.validate_fixed_effect_covariance(
+            covariance_matrix
+        )
+
+
+# Confirming that a fully qualified model becomes analytically available
+def test_assign_candidate_analytical_result_status_qualifies_complete_model() -> None:
+    modeling_policy = load_test_policy()
+
+    candidate_records = [
+        {
+            "candidate_identity": "candidate-1",
+            "fit_status": "completed",
+            "validation_status": "completed",
+            "uncertainty_status": "completed",
+            "influence_status": "completed"
+        }
+    ]
+
+    prepared_models = {
+        "candidate-1": {
+            "observation_records": [
+                {
+                    "condition_protocol_identity": "condition-a",
+                    "inside_evaluation_interval": True
+                }
+            ]
+        }
+    }
+
+    validation_metric_records = [
+        {
+            "candidate_identity": "candidate-1",
+            "predictive_r_squared": 0.3,
+            "predictive_r_squared_status": "completed",
+            "interval_metric_status": "completed"
+        }
+    ]
+
+    validation_prediction_records = [
+        {
+            "candidate_identity": "candidate-1",
+            "predicted_outcome": 0.95
+        }
+    ]
+
+    condition_calibration_records = [
+        {
+            "candidate_identity": "candidate-1",
+            "condition_protocol_identity": "condition-a",
+            "calibration_status": "completed"
+        }
+    ]
+
+    assign_candidate_analytical_result_status(
+        candidate_records = candidate_records,
+        prepared_models = prepared_models,
+        validation_metric_records = validation_metric_records,
+        validation_prediction_records = validation_prediction_records,
+        condition_calibration_records = condition_calibration_records,
+        modeling_policy = modeling_policy
+    )
+
+    record = candidate_records[0]
+
+    assert record["model_adequacy_status"] == "qualified"
+    assert record["analytical_result_status"] == "available"
+    assert record["predictive_benchmark_status"] == "met"
+    assert record["prediction_domain_status"] == "completed"
+
+
+# Confirming that negative out-of-fold predictive R-squared disqualifies the model
+def test_assign_candidate_analytical_result_status_rejects_negative_r_squared() -> None:
+    modeling_policy = load_test_policy()
+
+    candidate_records = [
+        {
+            "candidate_identity": "candidate-1",
+            "fit_status": "completed",
+            "validation_status": "completed",
+            "uncertainty_status": "completed",
+            "influence_status": "completed"
+        }
+    ]
+
+    prepared_models = {
+        "candidate-1": {
+            "observation_records": [
+                {
+                    "condition_protocol_identity": "condition-a",
+                    "inside_evaluation_interval": True
+                }
+            ]
+        }
+    }
+
+    validation_metric_records = [
+        {
+            "candidate_identity": "candidate-1",
+            "predictive_r_squared": -0.2,
+            "predictive_r_squared_status": "completed",
+            "interval_metric_status": "completed"
+        }
+    ]
+
+    validation_prediction_records = [
+        {
+            "candidate_identity": "candidate-1",
+            "predicted_outcome": 0.95
+        }
+    ]
+
+    condition_calibration_records = [
+        {
+            "candidate_identity": "candidate-1",
+            "condition_protocol_identity": "condition-a",
+            "calibration_status": "completed"
+        }
+    ]
+
+    assign_candidate_analytical_result_status(
+        candidate_records = candidate_records,
+        prepared_models = prepared_models,
+        validation_metric_records = validation_metric_records,
+        validation_prediction_records = validation_prediction_records,
+        condition_calibration_records = condition_calibration_records,
+        modeling_policy = modeling_policy
+    )
+
+    record = candidate_records[0]
+
+    assert record["model_adequacy_status"] == "diagnostic_only"
+    assert record["model_adequacy_reason_code"] == "PREDICTIVE_BENCHMARK_NOT_MET"
+    assert record["analytical_result_status"] == "diagnostic_only"
+
+
+# Confirming that nonpositive out-of-fold predictions disqualify the model
+def test_assign_candidate_analytical_result_status_rejects_nonpositive_prediction() -> None:
+    modeling_policy = load_test_policy()
+
+    candidate_records = [
+        {
+            "candidate_identity": "candidate-1",
+            "fit_status": "completed",
+            "validation_status": "completed",
+            "uncertainty_status": "completed",
+            "influence_status": "completed"
+        }
+    ]
+
+    prepared_models = {
+        "candidate-1": {
+            "observation_records": [
+                {
+                    "condition_protocol_identity": "condition-a",
+                    "inside_evaluation_interval": True
+                }
+            ]
+        }
+    }
+
+    validation_metric_records = [
+        {
+            "candidate_identity": "candidate-1",
+            "predictive_r_squared": 0.4,
+            "predictive_r_squared_status": "completed",
+            "interval_metric_status": "completed"
+        }
+    ]
+
+    validation_prediction_records = [
+        {
+            "candidate_identity": "candidate-1",
+            "predicted_outcome": 0.0
+        }
+    ]
+
+    condition_calibration_records = [
+        {
+            "candidate_identity": "candidate-1",
+            "condition_protocol_identity": "condition-a",
+            "calibration_status": "completed"
+        }
+    ]
+
+    assign_candidate_analytical_result_status(
+        candidate_records = candidate_records,
+        prepared_models = prepared_models,
+        validation_metric_records = validation_metric_records,
+        validation_prediction_records = validation_prediction_records,
+        condition_calibration_records = condition_calibration_records,
+        modeling_policy = modeling_policy
+    )
+
+    record = candidate_records[0]
+
+    assert record["model_adequacy_status"] == "diagnostic_only"
+    assert record["model_adequacy_reason_code"] == "NONPOSITIVE_OUT_OF_FOLD_PREDICTION"
+
+
+# Confirming that missing calibration for an evaluation-domain condition disqualifies the model
+def test_assign_candidate_analytical_result_status_rejects_incomplete_calibration() -> None:
+    modeling_policy = load_test_policy()
+
+    candidate_records = [
+        {
+            "candidate_identity": "candidate-1",
+            "fit_status": "completed",
+            "validation_status": "completed",
+            "uncertainty_status": "completed",
+            "influence_status": "completed"
+        }
+    ]
+
+    prepared_models = {
+        "candidate-1": {
+            "observation_records": [
+                {
+                    "condition_protocol_identity": "condition-a",
+                    "inside_evaluation_interval": True
+                },
+                {
+                    "condition_protocol_identity": "condition-b",
+                    "inside_evaluation_interval": True
+                }
+            ]
+        }
+    }
+
+    validation_metric_records = [
+        {
+            "candidate_identity": "candidate-1",
+            "predictive_r_squared": 0.3,
+            "predictive_r_squared_status": "completed",
+            "interval_metric_status": "completed"
+        }
+    ]
+
+    validation_prediction_records = [
+        {
+            "candidate_identity": "candidate-1",
+            "predicted_outcome": 0.95
+        }
+    ]
+
+    condition_calibration_records = [
+        {
+            "candidate_identity": "candidate-1",
+            "condition_protocol_identity": "condition-a",
+            "calibration_status": "completed"
+        }
+    ]
+
+    assign_candidate_analytical_result_status(
+        candidate_records = candidate_records,
+        prepared_models = prepared_models,
+        validation_metric_records = validation_metric_records,
+        validation_prediction_records = validation_prediction_records,
+        condition_calibration_records = condition_calibration_records,
+        modeling_policy = modeling_policy
+    )
+
+    record = candidate_records[0]
+
+    assert record["model_adequacy_status"] == "diagnostic_only"
+    assert record["model_adequacy_reason_code"] == "CONDITION_CALIBRATION_INCOMPLETE"
+
+
+# Confirming that handoff status depends on qualified trajectories, not on point contrasts
+def test_resolve_analytical_handoff_status_from_qualified_trajectories() -> None:
+    assert descriptive_models.resolve_analytical_handoff_status(
+        candidate_status_counts = Counter(
+            {"available": 1, "diagnostic_only": 0, "not_available": 0}
+        ),
+        unavailable_estimator_families = []
+    ) == "ready_for_continuous_trajectory_analysis"
+
+    assert descriptive_models.resolve_analytical_handoff_status(
+        candidate_status_counts = Counter(
+            {"available": 1, "diagnostic_only": 1, "not_available": 0}
+        ),
+        unavailable_estimator_families = []
+    ) == (
+        "ready_for_continuous_trajectory_analysis_with_model_family_and_candidate_restrictions"
+    )
+
+    assert descriptive_models.resolve_analytical_handoff_status(
+        candidate_status_counts = Counter(
+            {"available": 0, "diagnostic_only": 0, "not_available": 5}
+        ),
+        unavailable_estimator_families = []
+    ) == "not_ready_no_analytically_qualified_trajectory_models"
+
+
+# Building a controllable MixedLM replacement for acceptance tests
+class FakeMixedLMResult:
+    def __init__(
+        self,
+        fe_params: np.ndarray,
+        cov_params: np.ndarray,
+        cov_re: np.ndarray,
+        scale: float,
+        converged: bool,
+        random_effects: dict
+    ) -> None:
+        self.fe_params = fe_params
+        self._cov_params = cov_params
+        self.cov_re = cov_re
+        self.scale = scale
+        self.converged = converged
+        self.random_effects = random_effects
+
+    def cov_params(self) -> np.ndarray:
+        return self._cov_params
+
+
+# Constructing a MixedLM substitute that emits one configured warning and returns one configured result
+def build_fake_mixed_lm_class(result_factory: Callable[[], FakeMixedLMResult], warning_message: str | None = None) -> type:
+    class FakeMixedLM:
+        def __init__(self, **kwargs: object) -> None:
+            pass
+
+        def fit(self, **kwargs: object) -> FakeMixedLMResult:
+            if warning_message is not None:
+                warnings.warn(
+                    warning_message,
+                    UserWarning,
+                    stacklevel = 2
+                )
+
+            return result_factory()
+
+    return FakeMixedLM
+
+
+# Building one prepared mixed-effects model with a deterministic cell population
+def build_fake_mixed_effects_prepared_model() -> dict:
+    return build_prepared_regression_model(
+        "linear_mixed_effects"
+    )
+
+
+# Building the canonical set of random intercepts for one prepared model
+def build_fake_random_effects(prepared_model: dict) -> dict:
+    return {
+        cell_identity: np.array(
+            [0.0],
+            dtype = float
+        )
+        for cell_identity in sorted(
+            set(
+                prepared_model[
+                    "cell_identities"
+                ]
+            )
+        )
+    }
+
+
+# Confirming a converged boundary warning with valid ICC is accepted
+def test_fit_linear_mixed_effects_accepts_converged_boundary_warning(monkeypatch: pytest.MonkeyPatch) -> None:
+    modeling_policy = load_test_policy()
+
+    prepared_model = build_fake_mixed_effects_prepared_model()
+
+    random_effects = build_fake_random_effects(
+        prepared_model
+    )
+
+    def build_result() -> FakeMixedLMResult:
+        return FakeMixedLMResult(
+            fe_params = np.asarray(
+                [1.0, 0.2],
+                dtype = float
+            ),
+            cov_params = np.asarray(
+                [
+                    [0.001, 0.0001],
+                    [0.0001, 0.001]
+                ],
+                dtype = float
+            ),
+            cov_re = np.asarray(
+                [[0.05]],
+                dtype = float
+            ),
+            scale = 0.01,
+            converged = True,
+            random_effects = random_effects
+        )
+
+    monkeypatch.setattr(
+        descriptive_models,
+        "MixedLM",
+        build_fake_mixed_lm_class(
+            result_factory = build_result,
+            warning_message = (
+                "The fit obtained converged to the boundary of the parameter space."
+            )
+        )
+    )
+
+    fitted_result = fit_linear_mixed_effects(
+        prepared_model = prepared_model,
+        modeling_policy = modeling_policy
+    )
+
+    assert fitted_result["convergence_status"] == "completed"
+    assert fitted_result["random_effect_singularity_status"] == "non_singular"
+
+
+# Confirming a non-converged result is rejected
+def test_fit_linear_mixed_effects_rejects_nonconvergence(monkeypatch: pytest.MonkeyPatch) -> None:
+    modeling_policy = load_test_policy()
+
+    prepared_model = build_fake_mixed_effects_prepared_model()
+
+    def build_result() -> FakeMixedLMResult:
+        return FakeMixedLMResult(
+            fe_params = np.asarray(
+                [1.0, 0.2],
+                dtype = float
+            ),
+            cov_params = np.eye(2),
+            cov_re = np.asarray(
+                [[0.05]],
+                dtype = float
+            ),
+            scale = 0.01,
+            converged = False,
+            random_effects = {}
+        )
+
+    monkeypatch.setattr(
+        descriptive_models,
+        "MixedLM",
+        build_fake_mixed_lm_class(
+            result_factory = build_result
+        )
+    )
+
+    with pytest.raises(
+        descriptive_models.CandidateFitUnavailableError
+    ) as exception:
+        fit_linear_mixed_effects(
+            prepared_model = prepared_model,
+            modeling_policy = modeling_policy
+        )
+
+    assert exception.value.reason_code == "MIXED_EFFECTS_FIT_FAILED"
+
+    failure_details = exception.value.failure_details
+
+    assert failure_details
+
+    assert all(
+        failure_record[
+            "error"
+        ] == "non_convergence"
+        for failure_record in failure_details
+    )
+
+
+# Confirming a numerically singular ICC is rejected
+def test_fit_linear_mixed_effects_rejects_singular_intraclass_correlation(monkeypatch: pytest.MonkeyPatch) -> None:
+    modeling_policy = load_test_policy()
+
+    prepared_model = build_fake_mixed_effects_prepared_model()
+
+    random_effects = build_fake_random_effects(
+        prepared_model
+    )
+
+    def build_result() -> FakeMixedLMResult:
+        return FakeMixedLMResult(
+            fe_params = np.asarray(
+                [1.0, 0.2],
+                dtype = float
+            ),
+            cov_params = np.eye(2),
+            cov_re = np.asarray(
+                [[1e-15]],
+                dtype = float
+            ),
+            scale = 1.0,
+            converged = True,
+            random_effects = random_effects
+        )
+
+    monkeypatch.setattr(
+        descriptive_models,
+        "MixedLM",
+        build_fake_mixed_lm_class(
+            result_factory = build_result
+        )
+    )
+
+    with pytest.raises(
+        descriptive_models.CandidateFitUnavailableError
+    ) as exception:
+        fit_linear_mixed_effects(
+            prepared_model = prepared_model,
+            modeling_policy = modeling_policy
+        )
+
+    assert exception.value.reason_code == "MIXED_EFFECTS_FIT_FAILED"
+
+    failure_details = exception.value.failure_details
+
+    assert failure_details
+
+    assert any(
+        failure_record[
+            "error"
+        ] == "singular_random_effect_intraclass_correlation"
+        for failure_record in failure_details
+    )
+
+
+# Confirming the returned covariance is the validated, symmetrized matrix
+def test_fit_linear_mixed_effects_preserves_validated_covariance(monkeypatch: pytest.MonkeyPatch) -> None:
+    modeling_policy = load_test_policy()
+
+    prepared_model = build_fake_mixed_effects_prepared_model()
+
+    random_effects = build_fake_random_effects(
+        prepared_model
+    )
+
+    asymmetric_covariance = np.asarray(
+        [
+            [0.001, 0.0002],
+            [0.00005, 0.001]
+        ],
+        dtype = float
+    )
+
+    def build_result() -> FakeMixedLMResult:
+        return FakeMixedLMResult(
+            fe_params = np.asarray(
+                [1.0, 0.2],
+                dtype = float
+            ),
+            cov_params = asymmetric_covariance.copy(),
+            cov_re = np.asarray(
+                [[0.05]],
+                dtype = float
+            ),
+            scale = 0.01,
+            converged = True,
+            random_effects = random_effects
+        )
+
+    monkeypatch.setattr(
+        descriptive_models,
+        "MixedLM",
+        build_fake_mixed_lm_class(
+            result_factory = build_result
+        )
+    )
+
+    fitted_result = fit_linear_mixed_effects(
+        prepared_model = prepared_model,
+        modeling_policy = modeling_policy
+    )
+
+    expected_symmetric_covariance = (
+        asymmetric_covariance
+        + asymmetric_covariance.T
+    ) / 2.0
+
+    assert np.allclose(
+        fitted_result[
+            "model_based_fixed_effect_covariance"
+        ],
+        expected_symmetric_covariance
+    )
+
+    assert not np.allclose(
+        fitted_result[
+            "model_based_fixed_effect_covariance"
+        ],
+        asymmetric_covariance
+    )
+
+
+# Confirming the qualification summary reconciles reason counts and estimator breakdown
+def test_build_analytical_qualification_summary() -> None:
+    candidate_records = [
+        {
+            "candidate_identity": "candidate-a",
+            "final_disposition": "fitted",
+            "estimator": "weighted_least_squares",
+            "model_adequacy_status": "diagnostic_only",
+            "model_adequacy_reason_code": "PREDICTIVE_BENCHMARK_NOT_MET"
+        },
+        {
+            "candidate_identity": "candidate-b",
+            "final_disposition": "fitted",
+            "estimator": "linear_mixed_effects",
+            "model_adequacy_status": "diagnostic_only",
+            "model_adequacy_reason_code": "PREDICTIVE_BENCHMARK_NOT_MET"
+        },
+        {
+            "candidate_identity": "candidate-c",
+            "final_disposition": "fitted",
+            "estimator": "linear_mixed_effects",
+            "model_adequacy_status": "diagnostic_only",
+            "model_adequacy_reason_code": "NONPOSITIVE_OUT_OF_FOLD_PREDICTION"
+        },
+        {
+            "candidate_identity": "candidate-d",
+            "final_disposition": "fitted",
+            "estimator": "weighted_least_squares",
+            "model_adequacy_status": "qualified",
+            "model_adequacy_reason_code": None
+        },
+        {
+            "candidate_identity": "candidate-e",
+            "final_disposition": "not_selected",
+            "estimator": "weighted_least_squares",
+            "model_adequacy_status": None,
+            "model_adequacy_reason_code": None
+        }
+    ]
+
+    summary = descriptive_models.build_analytical_qualification_summary(
+        candidate_records
+    )
+
+    assert summary[
+        "diagnostic_only_candidate_count"
+    ] == 3
+
+    assert summary[
+        "model_adequacy_reason_counts"
+    ] == {
+        "NONPOSITIVE_OUT_OF_FOLD_PREDICTION": 1,
+        "PREDICTIVE_BENCHMARK_NOT_MET": 2
+    }
+
+    assert summary[
+        "model_adequacy_reason_counts_by_estimator"
+    ] == {
+        "linear_mixed_effects": {
+            "NONPOSITIVE_OUT_OF_FOLD_PREDICTION": 1,
+            "PREDICTIVE_BENCHMARK_NOT_MET": 1
+        },
+        "weighted_least_squares": {
+            "PREDICTIVE_BENCHMARK_NOT_MET": 1
+        }
+    }
+
+    assert sum(
+        summary[
+            "model_adequacy_reason_counts"
+        ].values()
+    ) == summary[
+        "diagnostic_only_candidate_count"
+    ]
+
+
+# Confirming that analytical qualification reads its predictive R-squared benchmark from the frozen policy
+def test_analytical_qualification_uses_policy_predictive_benchmark() -> None:
+    modeling_policy = load_test_policy()
+
+    modeling_policy[
+        "validation_metrics"
+    ][
+        "analytical_qualification"
+    ][
+        "predictive_r_squared_minimum"
+    ] = 0.5
+
+    candidate_records = [
+        {
+            "candidate_identity": "candidate-1",
+            "fit_status": "completed",
+            "validation_status": "completed",
+            "uncertainty_status": "completed",
+            "influence_status": "completed"
+        }
+    ]
+
+    prepared_models = {
+        "candidate-1": {
+            "observation_records": [
+                {
+                    "condition_protocol_identity": "condition-a",
+                    "inside_evaluation_interval": True
+                }
+            ]
+        }
+    }
+
+    assign_candidate_analytical_result_status(
+        candidate_records = candidate_records,
+        prepared_models = prepared_models,
+        validation_metric_records = [
+            {
+                "candidate_identity": "candidate-1",
+                "predictive_r_squared": 0.3,
+                "predictive_r_squared_status": "completed",
+                "interval_metric_status": "completed"
+            }
+        ],
+        validation_prediction_records = [
+            {
+                "candidate_identity": "candidate-1",
+                "predicted_outcome": 0.95
+            }
+        ],
+        condition_calibration_records = [
+            {
+                "candidate_identity": "candidate-1",
+                "condition_protocol_identity": "condition-a",
+                "calibration_status": "completed"
+            }
+        ],
+        modeling_policy = modeling_policy
+    )
+
+    assert candidate_records[0][
+        "model_adequacy_reason_code"
+    ] == "PREDICTIVE_BENCHMARK_NOT_MET"
