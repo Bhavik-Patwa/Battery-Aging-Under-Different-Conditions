@@ -1,0 +1,1269 @@
+{
+  "policy_version": "1.17",
+  "effective_date": "2026-10-26",
+  "previous_policy_sha256": "ac2ec547b648b40713d3e482633ff23198c61eb41a1060f234a87836b648e422",
+  "registration": {
+    "status": "registered_before_bayesian_model_fitting",
+    "descriptive_results_available_at_registration": true,
+    "bayesian_results_available_at_registration": false,
+    "causal_identification_status": "not_identified_from_observed_design",
+    "result_informed": true,
+    "result_informed_scope": "modeling architecture follows completed descriptive diagnostics; candidate construction does not use outcome direction, statistical significance or preferred fitted effects",
+    "analysis_classification": "exploratory_associational"
+  },
+  "authorization": {
+    "identification_report_status_required": "completed",
+    "causal_modeling_status_required": "not_authorized",
+    "associational_modeling_status_required": "partially_authorized",
+    "required_estimand_status": "authorized_with_recorded_restrictions",
+    "permitted_support_classifications": [
+      "supported_with_restrictions",
+      "sensitivity_only"
+    ],
+    "causal_language_permitted": false,
+    "causal_effect_parameters_permitted": false,
+    "policy_recommendations_permitted": false,
+    "causal_sensitivity_analysis_permitted": false,
+    "cross_stage_pooling_permitted": false,
+    "primary_and_sensitivity_cohorts_pooled": false,
+    "elapsed_time_and_fec_axes_pooled": false,
+    "calendar_and_cycle_aging_pooled": false,
+    "unobserved_condition_combinations_permitted": false
+  },
+  "inputs": {
+    "feature_manifest": "data/processed/feature_table_manifest.json",
+    "design_report": "data/processed/experimental_design/experimental_design_report.json",
+    "identification_report": "data/processed/causal_identification/causal_identification_report.json",
+    "descriptive_report": "data/processed/descriptive_models/descriptive_modeling_report.json",
+    "required_feature_tables": [
+        "reference_test_features",
+        "cell_features"
+    ],
+    "required_design_tables": [
+      "analytical_scope",
+      "bracketing_support_membership",
+      "bracketing_support_regions",
+      "estimand_support"
+    ],
+    "required_identification_table": "estimand_identification",
+    "required_descriptive_tables": [
+      "candidate_registry",
+      "observation_accounting"
+    ],
+    "descriptive_observation_accounting_reconciliation_required": true,
+    "reconstructed_candidate_counts_must_match_descriptive_source_candidate_counts": true,
+    "reconstructed_included_observation_identities_must_be_unique": true,
+    "descriptive_analytical_result_status_used_for_candidate_selection": false,
+    "every_input_hash_verification_required": true,
+    "embedded_policy_object_verification_required": true
+  },
+  "candidate_inventory": {
+    "source": "descriptive_modeling_report.candidate_registry",
+    "descriptive_result_fields_used_for_candidate_selection": false,
+    "required_selection_status": "selected",
+    "representative_template": "linear_common_trajectory",
+    "required_context_family": "no_additional_context",
+    "deduplication_fields": [
+      "support_region_identity",
+      "design_scope",
+      "sampling_design_scope",
+      "aging_mode",
+      "outcome",
+      "cohort",
+      "horizon_axis"
+    ],
+    "authorization_join": "candidate conditions must contain at least one estimand pair authorized by estimand_identification.csv",
+    "authorization_join_key": [
+      "aging_mode",
+      "outcome",
+      "cohort",
+      "horizon_axis",
+      "first_condition_protocol_identity",
+      "second_condition_protocol_identity"
+    ],
+    "candidate_selection_uses_outcome_values": false,
+    "candidate_selection_uses_descriptive_fit_status": false,
+    "candidate_selection_uses_validation_performance": false,
+    "candidate_selection_uses_statistical_significance": false,
+    "candidate_dispositions": [
+      "selected",
+      "not_authorized",
+      "not_assembled",
+      "inadmissible",
+      "fit_failed",
+      "fitted"
+    ],
+    "representative_estimator": "weighted_least_squares",
+    "duplicate_source_group_rule": "collapse_only_after_required_source_fields_and_assembled_observation_identities_are_identical",
+    "duplicate_source_required_identical_fields": [
+      "support_region_identity",
+      "design_scope",
+      "sampling_design_scope",
+      "aging_mode",
+      "outcome",
+      "cohort",
+      "horizon_axis",
+      "support_interval_minimum",
+      "support_interval_maximum",
+      "support_interval_lower_inclusive",
+      "support_interval_upper_inclusive",
+      "analysis_population"
+    ],
+    "duplicate_authorization_resolution": "retain_the_most_restrictive_source_authorization_and_all_source_candidate_identities",
+    "authorization_restriction_order": [
+      "permitted_for_model_evaluation_with_restrictions",
+      "permitted_for_model_evaluation_sensitivity_only"
+    ],
+    "source_specifications_retained_for_provenance_only": true,
+    "source_specifications_used_as_bayesian_terms": false,
+    "authorized_condition_graph_rule": "conditions_are_vertices_and_authorized_estimand_pairs_are_edges",
+    "disconnected_authorized_condition_graph_action": "split_into_deterministic_connected_component_candidates",
+    "candidate_identity_fields": [
+      "support_region_identity",
+      "design_scope",
+      "sampling_design_scope",
+      "aging_mode",
+      "outcome",
+      "cohort",
+      "horizon_axis",
+      "sorted_condition_protocol_identities",
+      "sorted_estimand_decision_identities"
+    ],
+    "source_candidate_provenance_required": true,
+    "candidate_construction_sequence": [
+      "select_source_candidates_using_registered_outcome_blind_fields",
+      "reconstruct_and_reconcile_each_source_candidate_observation_population",
+      "group_source_candidates_by_registered_deduplication_fields",
+      "validate_duplicate_source_required_fields_and_included_observation_identities",
+      "collapse_valid_duplicate_sources_while_retaining_all_source_candidate_identities",
+      "resolve_the_most_restrictive_source_authorization",
+      "join_authorized_estimand_edges",
+      "construct_the_authorized_condition_graph",
+      "split_disconnected_graphs_into_deterministically_ordered_connected_components",
+      "calculate_candidate_identity_from_registered_identity_fields",
+      "assemble_unique_component_observations",
+      "apply_registered_admissibility_checks"
+    ],
+    "candidate_identity_calculated_before_admissibility": true,
+    "inadmissible_candidates_retain_candidate_identity": true
+  },
+  "observation_contract": {
+    "independent_unit": "cell_identity",
+    "likelihood_contribution_unit": "eligible_longitudinal_observation",
+    "likelihood_term_count_rule": "one_student_t_likelihood_term_per_assembled_observation",
+    "artificial_equal_cell_likelihood_weighting_used": false,
+    "within_cell_dependence_representation": "correlated_cell_random_intercept_and_horizon_slope",
+    "observation_schedule_process_modeled": false,
+    "candidate_execution_statuses": [
+      "not_authorized",
+      "not_assembled",
+      "inadmissible",
+      "admissible",
+      "prior_predictive_failed",
+      "prior_review_pending",
+      "fit_failed",
+      "fitted"
+    ],
+    "posterior_analytical_statuses": [
+      "available",
+      "diagnostic_only",
+      "not_available"
+    ],
+    "reference_posterior_status_rule": "available_only_when_prior_review_sampler_diagnostics_posterior_predictive_diagnostics_grouped_validation_prediction_intervals_and_condition_calibration_all_complete_and_predictive_benchmark_is_met",
+    "sensitivity_posterior_status_rule": "reported_as_prior_sensitivity_only_and_never_used_to_replace_or_reclassify_the_reference_posterior",
+    "completed_execution_does_not_imply_all_candidates_are_available": true,
+    "observation_schedule_interpretation": "inference_is_conditional_on_observed_measurement_times_feature_availability_and_cohort_eligibility",
+    "noninformative_observation_schedule_established": false,
+    "unequal_observation_count_claim_boundary": "cells_with_more_eligible_measurements_contribute_more_conditional_likelihood_terms_but_measurements_are_not_redefined_as_independent_experimental_units",
+    "observation_identity": "source_identity",
+    "support_membership_key": [
+      "support_region_identity",
+      "cell_identity"
+    ],
+    "strictly_positive_horizon_required": true,
+    "strictly_positive_outcome_required": true,
+    "baseline_horizon_zero_excluded": true,
+    "baseline_exclusion_reason": "relative outcomes equal one by construction at the normalization measurement",
+    "model_construction_population": "all eligible positive-horizon observations from authorized support-member cells",
+    "evaluation_population": "eligible observations inside the recorded support interval",
+    "outside_interval_observations_permitted_for_fitting": true,
+    "outside_interval_predictions_permitted": false,
+    "missing_outcomes_imputed": false,
+    "missing_exposures_imputed": false,
+    "incident_corrections_inferred": false,
+    "complete_cumulative_fec_required_for_fec_axis": true,
+    "gross_calendar_time_interpretation": "whole_protocol_elapsed_time_not_net_storage_exposure",
+    "repeated_cell_definition": "cell_with_at_least_two_distinct_strictly_positive_horizon_values_in_the_assembled_candidate_data",
+    "distinct_horizon_comparison": "exact_finite_float_value_after_source_parsing",
+    "candidate_observation_order": [
+      "condition_protocol_identity",
+      "cell_identity",
+      "horizon",
+      "source_identity"
+    ],
+    "reconstructed_source_candidate_accounting_required": true,
+    "reconstructed_source_candidate_accounting_fields": [
+      "source_record_count",
+      "included_record_count",
+      "excluded_record_count",
+      "missing_horizon_count",
+      "nonpositive_horizon_count",
+      "missing_outcome_count",
+      "cohort_ineligible_count",
+      "incomplete_cumulative_fec_count",
+      "inside_evaluation_interval_count",
+      "outside_evaluation_interval_count"
+    ],
+    "source_accounting_mismatch_action": "abort_validation_without_publishing_outputs",
+    "source_accounting_mismatch_reason_code": "SOURCE_OBSERVATION_ACCOUNTING_MISMATCH"
+  },
+  "reason_code_contract": {
+    "candidate_admissibility": [
+      "INSUFFICIENT_CONDITIONS",
+      "INSUFFICIENT_INDEPENDENT_CELLS",
+      "INSUFFICIENT_REPEATED_CELLS",
+      "INSUFFICIENT_CONDITION_REPEATED_CELLS",
+      "INSUFFICIENT_DISTINCT_HORIZONS",
+      "INSUFFICIENT_INDEPENDENT_CELLS_PER_CONDITION",
+      "INSUFFICIENT_DISTINCT_HORIZONS_PER_CONDITION",
+      "NONPOSITIVE_SUPPORT_WIDTH",
+      "MODEL_MATRIX_RANK_DEFICIENT",
+      "NONPOSITIVE_OR_NONFINITE_OUTCOME"
+    ],
+    "grouped_validation": [
+      "NONPOSITIVE_SUPPORT_WIDTH",
+      "NO_MODELED_CONDITIONS",
+      "INSUFFICIENT_CELLS_FOR_GROUPED_VALIDATION",
+      "EMPTY_TRAINING_OBSERVATIONS",
+      "NO_TEST_OBSERVATIONS_IN_EVALUATION_INTERVAL",
+      "NONFINITE_OR_NONPOSITIVE_TRAINING_VALUE",
+      "TRAINING_CONDITION_MISSING",
+      "INSUFFICIENT_TRAINING_CELLS_PER_CONDITION",
+      "INSUFFICIENT_TRAINING_REPEATED_CELLS_PER_CONDITION",
+      "TRAINING_MODEL_MATRIX_RANK_DEFICIENT",
+      "TEST_CONDITION_MISSING_FROM_TRAINING",
+      "TEST_HORIZON_OUTSIDE_CONDITION_TRAINING_RANGE",
+      "INSUFFICIENT_EFFECTIVE_FOLDS",
+      "ONE_OR_MORE_FOLDS_UNAVAILABLE"
+    ],
+    "validation_abort": [
+      "SOURCE_OBSERVATION_ACCOUNTING_MISMATCH"
+    ],
+    "prior_predictive_execution": [
+      "PRIOR_PREDICTIVE_COMPLETED",
+      "PRIOR_PREDICTIVE_DRAW_GENERATION_FAILED",
+      "PRIOR_PREDICTIVE_GRID_GENERATION_FAILED",
+      "PRIOR_PREDICTIVE_NONFINITE_DRAWS"
+    ],
+    "cache_validation": [
+      "CACHE_METADATA_MISSING",
+      "CACHE_METADATA_SCHEMA_INVALID",
+      "CACHE_IDENTITY_MISMATCH",
+      "CACHE_ARTIFACT_HASH_MISMATCH",
+      "CACHE_INCOMPLETE_ENTRY",
+      "CACHE_CORRUPT_QUARANTINED"
+    ],
+    "posterior_sampling": [
+      "POSTERIOR_SAMPLING_COMPLETED",
+      "POSTERIOR_SAMPLING_FAILED"
+    ],
+    "sampler_diagnostics": [
+      "SAMPLER_DIAGNOSTICS_COMPLETED",
+      "SAMPLER_DIVERGENCES_EXCEEDED",
+      "SAMPLER_RHAT_EXCEEDED",
+      "SAMPLER_ESS_FAILED",
+      "SAMPLER_TREE_DEPTH_EXCEEDED",
+      "SAMPLER_BFMI_FAILED",
+      "SAMPLER_NONFINITE_DRAWS"
+    ],
+    "posterior_predictive_execution": [
+      "POSTERIOR_PREDICTIVE_COMPLETED",
+      "POSTERIOR_PREDICTIVE_FAILED"
+    ],
+    "grouped_validation_execution": [
+      "GROUPED_VALIDATION_EXECUTION_COMPLETED",
+      "GROUPED_VALIDATION_FOLD_FIT_FAILED",
+      "GROUPED_VALIDATION_INTERVAL_UNAVAILABLE"
+    ],
+    "analytical_qualification": [
+      "ANALYTICAL_QUALIFICATION_AVAILABLE",
+      "ANALYTICAL_QUALIFICATION_DIAGNOSTIC_ONLY",
+      "ANALYTICAL_QUALIFICATION_NOT_AVAILABLE"
+    ],
+    "trajectory_reporting": [
+      "TRAJECTORY_REPORTING_COMPLETED",
+      "TRAJECTORY_REPORTING_SKIPPED_NO_REFERENCE_POSTERIOR",
+      "TRAJECTORY_REPORTING_SKIPPED_NONFINITE_DRAWS"
+    ]
+  },
+  "outcomes": {
+    "relative_capacity": {
+      "source_field": "relative_capacity",
+      "primary_eligibility_field": "relative_capacity_primary_eligible",
+      "sensitivity_eligibility_field": "relative_capacity_sensitivity_eligible",
+      "transformation": "natural_logarithm",
+      "inverse_transformation": "exponential",
+      "support": "strictly_positive",
+      "interpretation": "associational_measured_relative_capacity"
+    },
+    "relative_dc_internal_resistance": {
+      "source_field": "relative_dc_internal_resistance",
+      "primary_eligibility_field": "relative_dc_internal_resistance_primary_eligible",
+      "sensitivity_eligibility_field": "relative_dc_internal_resistance_sensitivity_eligible",
+      "transformation": "natural_logarithm",
+      "inverse_transformation": "exponential",
+      "support": "strictly_positive",
+      "interpretation": "associational_measured_relative_resistance"
+    }
+  },
+  "horizon_encoding": {
+    "transformation": "assembled_training_range_midpoint_centered_and_width_scaled",
+    "formula": "(horizon - training_horizon_midpoint) / training_horizon_width",
+    "training_horizon_minimum": "minimum_horizon_across_assembled_model_observations",
+    "training_horizon_maximum": "maximum_horizon_across_assembled_model_observations",
+    "training_horizon_midpoint": "(training_horizon_minimum + training_horizon_maximum) / 2",
+    "training_horizon_width": "training_horizon_maximum - training_horizon_minimum",
+    "positive_training_horizon_width_required": true,
+    "evaluation_support_remains_reporting_domain": true,
+    "training_observations_outside_evaluation_interval_retain_transformed_values": true
+  },
+  "model": {
+    "name": "hierarchical_joint_condition_trajectory",
+    "likelihood": "student_t",
+    "location_scale": "log_outcome",
+    "condition_encoding": "observed_joint_condition_protocol_identity",
+    "decomposed_treatment_main_effects_reported": false,
+    "dose_response_parameters_reported": false,
+    "separate_treatment_main_effects_reported": false,
+    "treatment_interaction_parameters_reported": false,
+    "joint_condition_parameterization_reason": "validated_design_evidence_authorizes_observed_joint_condition_protocol_comparisons_but_does_not_identify_separable_dose_response_or_treatment_interaction_parameters",
+    "condition_specific_intercept": true,
+    "condition_specific_horizon_slope": true,
+    "condition_coefficients_partially_pooled": true,
+    "cell_random_intercept": true,
+    "cell_random_horizon_slope": true,
+    "cell_random_effect_correlation": true,
+    "laboratory_adjustment_included": false,
+    "equipment_adjustment_included": false,
+    "baseline_covariate_adjustment_included": false,
+    "adjustment_exclusion_reason": "not_authorized_by_validated_design_evidence",
+    "model_equation": "log_outcome = population_intercept + condition_intercept_deviation + (population_horizon_slope + condition_horizon_slope_deviation) * scaled_horizon + cell_intercept + cell_horizon_slope * scaled_horizon",
+    "trajectory_interpretation": "associational_condition_specific_longitudinal_trajectory",
+    "condition_effect_parameterization": "noncentered_independent_normal_intercept_and_horizon_slope_deviations",
+    "condition_intercept_slope_correlation_mode": "fixed_zero",
+    "condition_intercept_slope_independence_is_modeling_assumption": true,
+    "condition_intercept_slope_independence_rationale": "The number of modeled conditions can be small within an authorized connected component. Fixing the condition-level intercept-slope correlation at zero avoids adding a weakly identified covariance parameter while retaining separate partial-pooling scales. This restriction must remain explicit when interpreting trajectories.",
+    "condition_effect_exchangeability_scope": "conditions_within_one_authorized_connected_component_candidate",
+    "condition_effect_exchangeability_is_modeling_assumption": true,
+    "cell_effect_exchangeability_scope": "cells_within_one_authorized_connected_component_candidate",
+    "cell_effect_exchangeability_is_modeling_assumption": true,
+    "cell_random_effect_covariance_structure": "one_shared_intercept_slope_covariance_matrix_across_all_conditions_within_the_candidate",
+    "shared_cell_covariance_is_modeling_assumption": true,
+    "cell_random_effect_mean": [
+      0.0,
+      0.0
+    ],
+    "condition_deviation_mean": {
+      "intercept": 0.0,
+      "horizon_slope": 0.0
+    },
+    "population_coefficients_are_hierarchical_centers": true,
+    "cell_effect_parameterization": "noncentered_correlated_random_intercept_and_horizon_slope_with_lkj_cholesky_covariance",
+    "residual_conditional_independence": "observations_are_conditionally_independent_given_population_condition_and_cell_effects",
+    "residual_scale_structure": "one_shared_residual_scale_within_each_candidate_model",
+    "condition_specific_residual_scales_modeled": false,
+    "horizon_dependent_residual_scale_modeled": false,
+    "residual_scale_restriction_is_modeling_assumption": true,
+    "student_t_location_interpretation": "conditional_median_log_outcome"
+  },
+  "priors": {
+    "interpretation": "weakly_informative_regularization_on_the_log_ratio_scale",
+    "population_intercept": {
+      "distribution": "normal",
+      "mean": 0.0,
+      "standard_deviation": 0.25
+    },
+    "population_horizon_slope": {
+      "distribution": "normal",
+      "mean": 0.0,
+      "standard_deviation": 0.25
+    },
+    "condition_intercept_standard_deviation": {
+      "distribution": "half_normal",
+      "scale": 0.15
+    },
+    "condition_horizon_slope_standard_deviation": {
+      "distribution": "half_normal",
+      "scale": 0.15
+    },
+    "cell_random_intercept_standard_deviation": {
+      "distribution": "half_normal",
+      "scale": 0.1
+    },
+    "cell_random_horizon_slope_standard_deviation": {
+      "distribution": "half_normal",
+      "scale": 0.15
+    },
+    "cell_random_effect_correlation": {
+      "distribution": "lkj",
+      "eta": 2.0
+    },
+    "residual_standard_deviation": {
+      "distribution": "half_normal",
+      "scale": 0.1
+    },
+    "student_t_degrees_of_freedom": {
+      "distribution": "two_plus_exponential",
+      "exponential_mean": 10.0
+    },
+    "prior_scales_selected_from_fitted_outcome_direction": false,
+    "prior_predictive_sampling_required": true,
+    "prior_sensitivity_scale_multipliers": [
+      0.5,
+      1.0,
+      2.0
+    ],
+    "material_prior_sensitivity_action": "report_without_selecting_a_preferred_result",
+    "binary_prior_sensitivity_materiality_threshold": null,
+    "binary_prior_sensitivity_materiality_classification_permitted": false,
+    "scale_rationale": "log_ratio_scale_priors_regularize_trajectories_without_using_fitted_effect_direction_or_statistical_significance",
+    "population_coefficient_95_percent_multiplicative_range_at_one_scaled_unit": "approximately_0.61_to_1.63",
+    "condition_effect_standard_normal_noncentered": true,
+    "cell_effect_standard_normal_noncentered": true,
+    "prior_sensitivity_multiplier_application": "multiply_only_registered_substantive_prior_scale_parameters",
+    "prior_sensitivity_scaled_parameter_paths": [
+      "population_intercept.standard_deviation",
+      "population_horizon_slope.standard_deviation",
+      "condition_intercept_standard_deviation.scale",
+      "condition_horizon_slope_standard_deviation.scale",
+      "cell_random_intercept_standard_deviation.scale",
+      "cell_random_horizon_slope_standard_deviation.scale",
+      "residual_standard_deviation.scale"
+    ],
+    "prior_sensitivity_unscaled_parameters": [
+      "population_intercept.mean",
+      "population_horizon_slope.mean",
+      "condition_intercept_noncentered_standard_normal",
+      "condition_horizon_slope_noncentered_standard_normal",
+      "cell_random_effect_noncentered_standard_normals",
+      "cell_random_effect_correlation.eta",
+      "student_t_degrees_of_freedom.exponential_mean"
+    ],
+    "noncentered_standard_normal_standard_deviation": 1.0,
+    "posterior_fit_scale_multipliers": [
+      0.5,
+      1.0,
+      2.0
+    ],
+    "grouped_validation_scale_multiplier": 1.0,
+    "reference_analytical_scale_multiplier": 1.0,
+    "prior_sensitivity_posteriors_do_not_replace_reference_posterior": true,
+    "prior_predictive_draws_per_multiplier": 2000,
+    "prior_predictive_seeds": {
+      "0.5": 17387,
+      "1.0": 17389,
+      "2.0": 17393
+    },
+    "prior_predictive_automatic_acceptance_thresholds": null,
+    "prior_predictive_review_required_before_posterior_sampling": true,
+    "prior_change_after_prior_predictive_review_requires_new_policy_version": true,
+    "prior_predictive_statistics": [
+      "log_scale_median",
+      "log_scale_median_absolute_deviation",
+      "log_scale_interquartile_range",
+      "log_scale_minimum",
+      "log_scale_maximum",
+      "log_scale_quantiles_0.01_0.05_0.25_0.50_0.75_0.95_0.99",
+      "original_scale_finite_fraction",
+      "original_scale_nonfinite_count",
+      "original_scale_strictly_positive_finite_fraction",
+      "original_scale_finite_quantiles_0.01_0.05_0.25_0.50_0.75_0.95_0.99"
+    ],
+    "prior_predictive_original_scale_arithmetic_mean_reported": false,
+    "prior_predictive_nonfinite_values_recorded": true,
+    "prior_predictive_nonfinite_values_silently_removed": false,
+    "prior_predictive_nonfinite_review_action": "explicit_review_required",
+    "prior_predictive_new_cell_seed_rule": "registered_prior_predictive_seed_plus_zero_based_condition_index_plus_one"
+  },
+  "prior_predictive_review": {
+    "review_required_before_posterior_sampling": true,
+    "review_artifact_path": "configs/bayesian_prior_predictive_review.json",
+    "review_template_file": "bayesian_prior_predictive_review_template.json",
+    "review_scope_fields": [
+      "candidate_identity",
+      "outcome",
+      "prior_scale_multiplier"
+    ],
+    "review_document_fields": [
+      "policy_sha256",
+      "candidate_inventory_sha256",
+      "prior_predictive_diagnostics_sha256",
+      "review_records"
+    ],
+    "review_records_sorted_by": [
+      "candidate_identity",
+      "outcome",
+      "prior_scale_multiplier"
+    ],
+    "permitted_review_statuses": [
+      "pending",
+      "acknowledged",
+      "policy_amendment_required"
+    ],
+    "posterior_sampling_required_status": "acknowledged",
+    "observed_outcomes_used_for_review": false,
+    "descriptive_coefficients_used_for_review": false,
+    "comparative_model_performance_used_for_review": false,
+    "review_uses_prior_predictive_diagnostics_only": true,
+    "policy_sha256_binding_required": true,
+    "candidate_inventory_sha256_binding_required": true,
+    "prior_predictive_diagnostics_sha256_binding_required": true,
+    "prior_predictive_execution_status_required_for_every_admissible_candidate_multiplier": true,
+    "review_population": "admissible_candidate_multiplier_pairs_with_completed_prior_predictive_diagnostics",
+    "complete_review_population_coverage_required": true,
+    "inadmissible_candidates_require_review_records": false,
+    "failed_prior_predictive_pairs_require_review_records": false,
+    "failed_prior_predictive_pairs_require_acknowledgement": false,
+    "failed_prior_predictive_pair_execution_status": "prior_predictive_failed",
+    "failed_prior_predictive_pair_blocks_only_its_corresponding_posterior": true,
+    "failed_reference_multiplier_blocks_reference_posterior_for_that_candidate": true,
+    "failed_sensitivity_multiplier_blocks_only_that_sensitivity_posterior": true,
+    "successful_pairs_may_proceed_when_another_pair_failed": true,
+    "missing_or_mismatched_review_action": "posterior_sampling_not_started_for_the_affected_candidate_multiplier",
+    "policy_amendment_required_before_changing_priors": true,
+    "silent_review_default_permitted": false,
+    "review_record_fields": [
+      "candidate_identity",
+      "outcome",
+      "prior_scale_multiplier",
+      "review_status",
+      "review_rationale"
+    ],
+    "nonempty_review_rationale_required": true,
+    "acknowledged_status_interpretation": "completed_prior_predictive_diagnostics_reviewed_without_changing_the_registered_prior",
+    "acknowledgement_is_automatic_prior_approval": false,
+    "policy_amendment_required_status_interpretation": "the_registered_prior_requires_a_new_policy_version_before_posterior_sampling_for_any_affected_population",
+    "policy_amendment_required_record_blocks_fit_operation": true,
+    "nonfinite_prior_predictive_values_require_policy_amendment_or_explicit_scientific_rationale": true
+  },
+  "generative_prediction_contract": {
+    "prior_predictive": {
+      "observed_outcome_values_conditioned_on": false,
+      "observed_design_structure_used": true,
+      "observed_design_population": "assembled_model_observations",
+      "observed_design_structure_fields": [
+        "condition_protocol_identity",
+        "cell_identity",
+        "scaled_horizon",
+        "inside_evaluation_interval"
+      ],
+      "condition_effects_sampled_from_registered_prior": true,
+      "cell_effects_sampled_from_registered_prior": true,
+      "one_cell_effect_draw_shared_across_all_observations_of_that_cell": true,
+      "student_t_observation_noise_included": true,
+      "outside_evaluation_interval_observations_included": true,
+      "latent_trajectory_grid_diagnostics_required": true,
+      "latent_trajectory_grid_source": "trajectory_reporting_boundary_aware_grid",
+      "latent_trajectory_grid_cell_random_effects": "zero",
+      "latent_trajectory_grid_observation_noise_included": false,
+      "new_cell_predictive_grid_diagnostics_required": true,
+      "new_cell_predictive_grid_source": "trajectory_reporting_boundary_aware_grid",
+      "new_cell_predictive_grid_cell_effects": "sampled_from_registered_cell_random_effect_distribution",
+      "new_cell_predictive_grid_observation_noise_included": true,
+      "diagnostic_populations": [
+        "assembled_observations",
+        "inside_evaluation_interval_observations",
+        "outside_evaluation_interval_observations",
+        "condition_latent_trajectory_grid",
+        "condition_new_cell_predictive_grid"
+      ],
+      "condition_specific_diagnostics_required_for_grid_populations": true,
+      "boundary_behavior_included_in_review": true,
+      "review_population": "every_admissible_candidate_and_registered_prior_predictive_scale_multiplier",
+      "failed_prior_predictive_execution_status": "prior_predictive_failed",
+      "failed_prior_predictive_review_record_created": false,
+      "failed_prior_predictive_posterior_sampling_permitted_for_same_candidate_multiplier": false,
+      "prior_predictive_failure_blocks_other_candidate_multipliers": false
+    },
+    "full_data_posterior_predictive": {
+      "target": "conditional_replication_of_observed_cells",
+      "observed_cell_random_effects_used": true,
+      "new_cell_random_effects_used": false,
+      "student_t_observation_noise_included": true,
+      "observed_outcomes_used_only_for_model_conditioning_and_diagnostic_comparison": true,
+      "diagnostic_population": "assembled_model_observations",
+      "diagnostic_strata": [
+        "all_assembled_observations",
+        "inside_evaluation_interval",
+        "outside_evaluation_interval"
+      ],
+      "interpretation": "in_sample_conditional_model_check_not_unseen_cell_validation"
+    },
+    "grouped_validation_posterior_predictive": {
+      "target": "prediction_for_held_out_cells",
+      "held_out_cell_effects_from_training_fit_used": false,
+      "one_new_cell_effect_draw_shared_across_all_observations_of_each_held_out_cell": true,
+      "new_cell_effects_sampled_from_training_posterior_population_distribution": true,
+      "student_t_observation_noise_included": true,
+      "test_population": "eligible_evaluation_interval_observations_with_same_condition_training_horizon_coverage",
+      "interpretation": "unseen_cell_predictive_validation"
+    },
+    "trajectory_prediction": {
+      "latent_reference_cell_target": "condition_trajectory_with_cell_random_intercept_and_slope_equal_to_zero",
+      "new_cell_predictive_target": "new_cell_effects_sampled_from_the_posterior_population_distribution",
+      "student_t_observation_noise_included_in_latent_trajectory": false,
+      "student_t_observation_noise_included_in_new_cell_prediction": true
+    }
+  },
+  "admissibility": {
+    "minimum_conditions": 2,
+    "minimum_independent_cells": 6,
+    "minimum_repeated_cells": 4,
+    "minimum_repeated_cells_per_condition": 2,
+    "minimum_distinct_positive_horizons": 3,
+    "minimum_distinct_positive_horizons_per_condition": 2,
+    "every_modeled_condition_participates_in_an_authorized_estimand": true,
+    "finite_transformed_outcome_required": true,
+    "finite_transformed_horizon_required": true,
+    "failed_admissibility_action": "record_without_fitting",
+    "automatic_model_simplification_permitted": false,
+    "automatic_prior_change_permitted": false,
+    "minimum_independent_cells_per_condition": 2,
+    "authorized_condition_graph_connected_required": true,
+    "assembled_observation_identity_equality_required_for_collapsed_source_candidates": true,
+    "condition_exchangeability_assumption_recorded": true,
+    "fixed_location_design_rank_check_required": true,
+    "fixed_location_design_columns": "one_condition_indicator_and_one_condition_by_scaled_horizon_column_for_each_modeled_condition_without_additional_population_intercept_columns",
+    "fixed_location_design_column_order": "condition_intercepts_in_sorted_condition_identity_order_followed_by_condition_slopes_in_the_same_order",
+    "rank_method": "singular_value_decomposition",
+    "rank_tolerance_formula": "maximum_matrix_dimension_times_largest_singular_value_times_ieee_754_float64_machine_epsilon",
+    "full_rank_requirement": "rank_equals_two_times_modeled_condition_count",
+    "hierarchical_prior_does_not_override_failed_design_rank": true
+  },
+  "sampling": {
+    "engine": "pymc",
+    "sampler": "native_nuts",
+    "chains": 4,
+    "draws_per_chain": 2000,
+    "tuning_draws_per_chain": 2000,
+    "cores": 1,
+    "sampler_seed": 17401,
+    "target_accept": 0.9,
+    "maximum_tree_depth": 12,
+    "initialization": "jitter_plus_adapt_diag",
+    "discard_tuned_samples": true,
+    "compute_convergence_checks": false,
+    "automatic_retry_permitted": false,
+    "automatic_sampler_change_permitted": false,
+    "failed_sampling_action": "record_fit_failed",
+    "execution_operations": [
+      "validate",
+      "prior_predictive",
+      "populate_fit_cache",
+      "fit"
+    ],
+    "validation_operation_samples_model": false,
+    "prior_predictive_operation_conditions_on_observed_outcomes": false,
+    "posterior_predictive_seed": 17449,
+    "full_data_posterior_scale_multipliers": [
+      0.5,
+      1.0,
+      2.0
+    ],
+    "grouped_validation_scale_multipliers": [
+      1.0
+    ],
+    "posterior_predictive_draws": "one_draw_for_every_retained_posterior_chain_draw",
+    "reference_posterior_multiplier": 1.0,
+    "analytical_qualification_uses_reference_posterior_only": true,
+    "sensitivity_posterior_failure_does_not_replace_reference_posterior": true
+  },
+  "diagnostics": {
+    "maximum_rank_normalized_split_rhat": 1.01,
+    "minimum_bulk_effective_sample_size": 400,
+    "minimum_tail_effective_sample_size": 400,
+    "maximum_divergence_count": 0,
+    "minimum_bfmi_per_chain": 0.3,
+    "maximum_tree_depth_hit_count": 0,
+    "finite_posterior_draws_required": true,
+    "diagnostics_apply_to": [
+      "population_coefficients",
+      "condition_effect_deviations",
+      "condition_scale_parameters",
+      "cell_random_effects",
+      "cell_scale_parameters",
+      "cell_random_effect_correlation",
+      "residual_scale",
+      "student_t_degrees_of_freedom"
+    ],
+    "failed_diagnostic_action": "posterior_not_analytically_available",
+    "diagnostic_failure_never_triggers_automatic_refitting": true,
+    "all_free_random_variables_checked": true,
+    "reported_trajectory_quantities_checked_for_finite_values": true,
+    "warning_only_diagnostics_never_silently_discarded": true
+  },
+  "predictive_assessment": {
+    "prior_predictive_checks_required": true,
+    "posterior_predictive_checks_required": true,
+    "posterior_predictive_statistics": [
+      "equal_cell_weighted_median",
+      "equal_cell_weighted_median_absolute_deviation",
+      "minimum",
+      "maximum",
+      "quantiles_0.05_0.25_0.50_0.75_0.95",
+      "within_cell_first_to_last_change",
+      "condition_level_median",
+      "horizon_bin_median"
+    ],
+    "posterior_predictive_p_value_used_for_acceptance": false,
+    "new_cell_validation_method": "deterministic_cell_grouped_k_fold_refitting",
+    "requested_fold_count": 5,
+    "effective_fold_count_rule": "minimum_of_requested_fold_count_and_minimum_modeled_condition_cell_count",
+    "minimum_effective_fold_count": 2,
+    "empty_folds_created": false,
+    "every_cell_assigned_to_exactly_one_test_fold": true,
+    "every_effective_fold_must_have_at_least_one_test_cell": true,
+    "every_test_condition_must_remain_present_in_training": true,
+    "training_fold_minimum_independent_cells_per_condition": 2,
+    "training_fold_minimum_repeated_cells_per_condition": 2,
+    "training_fold_minimum_conditions": 2,
+    "training_fold_full_rank_required": true,
+    "training_fold_finite_transformed_values_required": true,
+    "training_fold_same_condition_horizon_coverage_required": true,
+    "all_effective_folds_required_for_completed_validation": true,
+    "fold_infeasibility_action": "validation_unavailable_without_model_or_fold_change",
+    "fold_assignment_unit": "cell_identity",
+    "fold_stratification_field": "condition_protocol_identity",
+    "cell_leakage_permitted": false,
+    "training_observations": "all_eligible_positive_horizon_observations_from_training_support_member_cells",
+    "test_observations": "eligible_evaluation_interval_observations_from_held_out_cells",
+    "same_condition_training_horizon_range_required": true,
+    "held_out_cell_random_effect_handling": "sample_one_new_correlated_intercept_and_slope_per_posterior_predictive_draw_shared_across_all_observations_of_that_held_out_cell",
+    "held_out_cell_effects_from_full_or_training_fit_reused": false,
+    "validation_metrics": [
+      "equal_cell_weighted_mean_absolute_error",
+      "equal_cell_weighted_root_mean_squared_error",
+      "equal_cell_weighted_median_error",
+      "posterior_predictive_interval_coverage",
+      "mean_posterior_predictive_interval_width",
+      "equal_cell_weighted_predictive_r_squared"
+    ],
+    "posterior_predictive_interval_probability": 0.95,
+    "incomplete_fold_action": "validation_unavailable_without_model_change",
+    "outcome_dependent_model_selection_permitted": false,
+    "observation_level_psis_loo_permitted": false,
+    "conditional_cell_effect_psis_loo_permitted": false,
+    "psis_loo_exclusion_reason": "conditional_log_likelihood_reuses_cell_effects_estimated_from_the_cell_and_does_not_measure_prediction_for_an_unseen_cell",
+    "arithmetic_moment_diagnostics_on_original_scale_required": false,
+    "arithmetic_moment_exclusion_reason": "the_exponentiated_student_t_observation_distribution_does_not_have_finite_arithmetic_moments",
+    "fold_assignment_method": "sort_cells_within_condition_by_sha256_of_canonical_json_candidate_identity_condition_identity_cell_identity_and_seed_then_assign_round_robin",
+    "fold_assignment_seed": 17501,
+    "fold_refit_chain_seeds": "reuse_registered_chain_seeds_for_every_fold_fit",
+    "fold_posterior_predictive_seed_rule": "posterior_predictive_seed_plus_zero_based_fold_index",
+    "posterior_point_prediction": "median_across_new_cell_posterior_predictive_draws_on_original_outcome_scale",
+    "predictive_interval_method": "equal_tailed_quantiles",
+    "predictive_interval_lower_probability": 0.025,
+    "predictive_interval_upper_probability": 0.975,
+    "quantile_method": "numpy_linear",
+    "equal_cell_weighted_mean_absolute_error_formula": "mean_over_test_cells_of_mean_over_valid_cell_condition_observations_of_absolute_observation_level_posterior_predictive_median_minus_observed_outcome",
+    "equal_cell_weighted_root_mean_squared_error_formula": "square_root_of_mean_over_test_cells_of_mean_over_valid_cell_condition_observations_of_squared_observation_level_posterior_predictive_median_minus_observed_outcome",
+    "posterior_predictive_interval_coverage_formula": "mean_over_test_cells_of_mean_over_valid_cell_condition_observations_of_indicator_observed_outcome_inside_equal_tailed_interval",
+    "mean_posterior_predictive_interval_width_formula": "mean_over_test_cells_of_mean_over_cell_test_observations_of_upper_interval_bound_minus_lower_interval_bound",
+    "benchmark_prediction": "equal_cell_weighted_mean_observed_outcome_within_the_same_condition_in_the_training_fold",
+    "predictive_r_squared_formula": "one_minus_equal_cell_weighted_model_squared_error_divided_by_equal_cell_weighted_training_condition_benchmark_squared_error",
+    "zero_benchmark_variation_status": "unavailable",
+    "strictly_positive_finite_predictions_required": true,
+    "complete_prediction_for_every_valid_test_observation_required": true,
+    "condition_calibration_required": true,
+    "condition_calibration_population": "valid_out_of_fold_evaluation_interval_predictions",
+    "condition_calibration_grouping": [
+      "candidate_identity",
+      "condition_protocol_identity"
+    ],
+    "condition_calibration_metrics": [
+      "independent_cell_count",
+      "observation_count",
+      "equal_cell_weighted_median_observed",
+      "equal_cell_weighted_median_predicted",
+      "equal_cell_weighted_median_error",
+      "equal_cell_weighted_mean_absolute_error",
+      "equal_cell_weighted_root_mean_squared_error",
+      "posterior_predictive_interval_coverage",
+      "mean_posterior_predictive_interval_width"
+    ],
+    "condition_calibration_observation_prediction_reduction": "for_each_observation_take_the_numpy_linear_median_across_new_cell_posterior_predictive_draws_on_the_original_outcome_scale",
+    "condition_calibration_within_cell_observed_reduction": "numpy_linear_median_of_observed_outcomes_across_valid_condition_specific_test_observations_for_the_cell",
+    "condition_calibration_within_cell_predicted_reduction": "numpy_linear_median_of_observation_level_posterior_predictive_medians_across_valid_condition_specific_test_observations_for_the_cell",
+    "condition_calibration_within_cell_error_reduction": "numpy_linear_median_of_observation_level_posterior_predictive_median_minus_observed_outcome_across_valid_condition_specific_test_observations_for_the_cell",
+    "condition_calibration_across_cell_reduction": "numpy_linear_median_across_the_corresponding_within_cell_summaries",
+    "equal_cell_weighted_median_observed_formula": "median_over_test_cells_of_median_over_valid_cell_condition_observations_of_observed_outcome",
+    "equal_cell_weighted_median_predicted_formula": "median_over_test_cells_of_median_over_valid_cell_condition_observations_of_observation_level_posterior_predictive_median",
+    "equal_cell_weighted_median_error_formula": "median_over_test_cells_of_median_over_valid_cell_condition_observations_of_observation_level_posterior_predictive_median_minus_observed_outcome",
+    "condition_calibration_quantile_method": "numpy_linear",
+    "unequal_observation_counts_do_not_change_cell_weight": true,
+    "one_observation_cell_within_cell_median": "the_single_available_value",
+    "posterior_draw_reduction_precedes_within_cell_and_across_cell_reductions": true,
+    "every_evaluation_condition_requires_completed_calibration": true,
+    "within_cell_first_to_last_order": [
+      "horizon",
+      "source_identity"
+    ],
+    "horizon_bin_count": 5,
+    "horizon_bin_construction": "equal_width_bins_over_the_candidate_evaluation_interval",
+    "horizon_bin_lower_boundary_inclusion": "first_bin_includes_the_candidate_lower_boundary_only_when_the_support_boundary_is_inclusive",
+    "horizon_bin_upper_boundary_inclusion": "last_bin_includes_the_candidate_upper_boundary_only_when_the_support_boundary_is_inclusive",
+    "outside_evaluation_interval_observations_excluded_from_horizon_bins": true,
+    "empty_horizon_bins_recorded": true,
+    "empty_horizon_bin_status": "unavailable",
+    "analytical_qualification": {
+      "reference_prior_multiplier_required": 1.0,
+      "prior_predictive_review_acknowledged_required": true,
+      "full_posterior_sampler_diagnostics_completed_required": true,
+      "posterior_predictive_diagnostics_completed_required": true,
+      "grouped_validation_completed_required": true,
+      "predictive_r_squared_completed_required": true,
+      "minimum_predictive_r_squared": 0.0,
+      "prediction_intervals_completed_required": true,
+      "condition_calibration_completed_required": true,
+      "strictly_positive_finite_predictions_required": true,
+      "failed_qualification_status": "diagnostic_only",
+      "qualification_does_not_establish_causal_identification": true,
+      "qualification_does_not_establish_model_truth": true
+    }
+  },
+  "trajectory_reporting": {
+    "continuous_trajectory_reporting_authorized": true,
+    "discrete_point_contrasts_authorized": false,
+    "trajectory_grid_size": 101,
+    "trajectory_grid_rule": "equally_spaced_inside_the_authorized_support_interval_with_recorded_boundary_inclusion",
+    "trajectory_grid_formula": "for_grid_index_j_from_zero_to_grid_size_minus_one_use_lower_plus_(j_plus_lower_offset)_divided_by_(grid_size_minus_one_plus_lower_offset_plus_upper_offset)_times_upper_minus_lower",
+    "trajectory_grid_lower_offset": "zero_when_lower_boundary_is_inclusive_otherwise_one",
+    "trajectory_grid_upper_offset": "zero_when_upper_boundary_is_inclusive_otherwise_one",
+    "exclusive_support_boundaries_never_evaluated": true,
+    "trajectory_grid_points_are_estimand_horizons": false,
+    "trajectory_grid_purpose": "numerical_representation_of_the_continuous_associational_trajectory",
+    "reported_latent_trajectory_target": "condition_specific_median_for_a_cell_with_random_intercept_and_slope_equal_to_zero",
+    "latent_trajectory_formula": "exp_of_condition_specific_log_location",
+    "latent_trajectory_posterior_summaries": [
+      "posterior_draw_mean",
+      "posterior_draw_median",
+      "credible_interval"
+    ],
+    "posterior_draw_mean_interpretation": "mean_across_posterior_draws_of_the_finite_latent_median_trajectory_not_the_mean_of_the_observation_distribution",
+    "new_cell_predictive_distribution_reported": true,
+    "new_cell_random_effect": "sampled_from_registered_cell_random_effect_distribution",
+    "new_cell_predictive_seed": 17603,
+    "new_cell_predictive_seed_rule": "sha256_of_candidate_identity_condition_protocol_identity_and_registered_seed_reduced_to_unsigned_32_bit_integer",
+    "new_cell_predictive_summaries": [
+      "posterior_predictive_median",
+      "posterior_predictive_interval"
+    ],
+    "new_cell_predictive_mean_reported": false,
+    "new_cell_predictive_mean_exclusion_reason": "the_exponentiated_student_t_observation_distribution_does_not_have_a_finite_arithmetic_mean",
+    "credible_interval_probability": 0.95,
+    "simultaneous_difference_band_reported": false,
+    "pairwise_point_contrast_reported": false,
+    "causal_label": "not_authorized",
+    "estimate_label": "bayesian_associational",
+    "continuous_pairwise_difference_reporting": {
+      "authorized": true,
+      "authorization_source": "estimand_identification.csv",
+      "required_estimand_status": "authorized_with_recorded_restrictions",
+      "condition_pairs_not_connected_by_an_authorized_estimand_reported": false,
+      "evaluation_domain": "intersection_of_candidate_support_and_estimand_permitted_ranges",
+      "grid_construction": "apply_the_boundary_aware_trajectory_grid_separately_to_each_contiguous_permitted_range",
+      "latent_difference_draw_formula": "exp_second_condition_log_location_minus_exp_first_condition_log_location",
+      "latent_ratio_draw_formula": "exp_second_condition_log_location_minus_first_condition_log_location_then_exponentiate",
+      "summary_statistics": [
+        "posterior_draw_mean",
+        "posterior_draw_median",
+        "equal_tailed_credible_interval"
+      ],
+      "credible_interval_probability": 0.95,
+      "simultaneous_band_reported": false,
+      "individual_grid_points_are_discrete_estimand_horizons": false,
+      "isolated_grid_point_claims_permitted": false,
+      "causal_interpretation": "not_authorized",
+      "estimate_label": "bayesian_associational",
+      "positive_width_evaluation_range_required": true,
+      "zero_width_range_action": "difference_trajectory_unavailable",
+      "zero_width_range_reason_code": "NO_POSITIVE_WIDTH_CONTINUOUS_EVALUATION_RANGE",
+      "zero_width_ranges_authorize_discrete_point_contrasts": false,
+      "zero_width_ranges_may_remain_as_model_authorization_edges": true,
+      "zero_width_ranges_reported_in_reconciliation": true,
+      "reason_codes": {
+        "NO_POSITIVE_WIDTH_CONTINUOUS_EVALUATION_RANGE": "The authorized comparison has no positive-width range over which a continuous difference trajectory can be reported.",
+        "CONDITIONS_NOT_PRESENT_IN_CANDIDATE": "The candidate does not contain both estimand conditions.",
+        "NO_SHARED_AUTHORIZED_RANGE": "The candidate support and estimand-permitted ranges do not have a positive-width intersection.",
+        "REFERENCE_POSTERIOR_NOT_ANALYTICALLY_AVAILABLE": "The reference posterior did not satisfy the registered analytical qualification requirements."
+      }
+    },
+    "posterior_quantile_method": "numpy_linear",
+    "credible_interval_method": "equal_tailed_quantiles"
+  },
+  "model_comparison": {
+    "model_template_count": 1,
+    "dataset_candidate_count_source": "validated_candidate_registry",
+    "performance_selected_winner_permitted": false,
+    "model_comparison_status": "not_applicable_single_registered_model_template",
+    "prior_sensitivity_is_model_selection": false,
+    "prior_sensitivity_results_reported_without_selecting_a_preferred_result": true,
+    "automatic_model_averaging_permitted": false
+  },
+  "reporting": {
+    "analysis_classification": "exploratory_bayesian_associational",
+    "causal_interpretation_authorized": false,
+    "policy_recommendation_authorized": false,
+    "population_generalization_authorized": false,
+    "analysis_population_interpretation": "eligible_cells_and_measurements_within_the_registered_cohort_support_and_observation_contract",
+    "selection_process_modeled": false,
+    "observation_schedule_process_modeled": false,
+    "mandatory_claim_boundaries": [
+      "results_are_conditional_on_observed_measurement_times_and_feature_availability",
+      "joint_condition_trajectories_do_not_identify_separate_treatment_effects",
+      "dose_response_and_treatment_interaction_parameters_are_not_reported",
+      "gross_elapsed_calendar_time_is_not_net_storage_exposure",
+      "achieved_fec_is_a_post_assignment_observed_axis",
+      "cross_stage_transportability_is_not_established",
+      "bayesian_estimation_does_not_establish_causal_identification"
+    ]
+  },
+  "execution_planning": {
+    "candidate_inventory_validation_required_before_sampling": true,
+    "admissible_candidate_count_required_before_sampling": true,
+    "prior_predictive_call_count_required_before_sampling": true,
+    "full_data_posterior_call_count_required_before_sampling": true,
+    "grouped_validation_posterior_call_count_required_before_sampling": true,
+    "posterior_predictive_forward_call_upper_bound_required_before_sampling": true,
+    "total_sampler_call_upper_bound_required_before_sampling": true,
+    "prior_predictive_call_count_formula": "admissible_candidate_count_times_registered_prior_predictive_scale_multiplier_count",
+    "full_data_posterior_call_count_formula": "admissible_candidate_count_times_registered_full_data_posterior_scale_multiplier_count",
+    "grouped_validation_posterior_call_count_formula": "sum_over_validation_feasible_admissible_candidates_of_effective_fold_count_times_registered_grouped_validation_scale_multiplier_count",
+    "nuts_sampler_call_upper_bound_formula": "full_data_posterior_call_count_plus_grouped_validation_posterior_call_count",
+    "planned_posterior_predictive_forward_call_upper_bound_formula": "full_data_posterior_call_count_plus_grouped_validation_posterior_call_count",
+    "planned_all_stochastic_call_upper_bound_formula": "prior_predictive_call_count_plus_nuts_sampler_call_upper_bound_plus_planned_posterior_predictive_forward_call_upper_bound",
+    "actual_posterior_predictive_forward_call_count_formula": "successful_full_data_posterior_count_plus_successful_grouped_validation_posterior_count",
+    "actual_stochastic_call_count_reported_after_execution": true,
+    "actual_call_count_must_not_exceed_registered_upper_bound": true,
+    "prior_predictive_calls_are_nuts_sampler_calls": false,
+    "candidate_level_resumable_cache_required": true,
+    "cache_identity_fields": [
+      "policy_sha256",
+      "verified_input_hashes",
+      "candidate_identity",
+      "operation",
+      "prior_scale_multiplier",
+      "validation_fold_identity",
+      "software_environment_sha256",
+      "implementation_sha256"
+    ],
+    "cache_reuse_requires_exact_identity_match": true,
+    "partial_cache_never_constitutes_completed_output": true,
+    "final_artifact_assembly_remains_transactional": true,
+    "sampling_order": "candidate_identity_then_prior_scale_multiplier_then_validation_fold_identity",
+    "validation_operation_must_not_initialize_pymc_sampling": true,
+    "resource_estimates_are_operational_not_scientific": true,
+    "resource_limits_must_not_change_candidate_scientific_eligibility": true
+  },
+  "cache_contract": {
+    "default_cache_directory": "data/cache/bayesian_models",
+    "cache_entry_directory_identity": "sha256_of_canonical_json_cache_identity_fields",
+    "cache_metadata_file": "cache_metadata.json",
+    "cache_inference_data_file": "inference_data.nc",
+    "cache_completion_file": "completed.json",
+    "cache_entry_written_transactionally": true,
+    "completion_file_written_last": true,
+    "cache_metadata_schema_required": true,
+    "cache_artifact_hashes_required": true,
+    "incomplete_cache_entry_reuse_permitted": false,
+    "mismatched_cache_entry_reuse_permitted": false,
+    "corrupt_cache_entry_action": "atomically_move_corrupt_entry_to_a_non_reusable_quarantine_path_then_recompute",
+    "corrupt_cache_quarantine_suffix": "corrupt_plus_sha256_of_existing_cache_metadata_and_artifact_inventory",
+    "quarantined_cache_entry_reuse_permitted": false,
+    "quarantined_cache_entry_preserved_for_diagnostics": true,
+    "software_environment_identity_fields": [
+      "python_implementation",
+      "python_version",
+      "platform_system",
+      "platform_release",
+      "platform_machine",
+      "numpy_version",
+      "scipy_version",
+      "pymc_version",
+      "pytensor_version",
+      "arviz_version",
+      "xarray_version",
+      "numpy_configuration_sha256",
+      "pytensor_cxx",
+      "cxx_compiler_identity"
+    ],
+    "software_environment_identity_method": "sha256_of_canonical_json_environment_record",
+    "numpy_configuration_sha256_source": "sha256_of_utf8_captured_numpy_show_config_output",
+    "cache_identity_uses_absolute_paths": false,
+    "cache_metadata_fields": [
+      "cache_identity",
+      "cache_identity_sha256",
+      "software_environment",
+      "software_environment_sha256",
+      "execution_status",
+      "artifact_hashes"
+    ],
+    "cache_completion_fields": [
+      "cache_identity_sha256",
+      "cache_metadata_sha256",
+      "inference_data_sha256",
+      "execution_status"
+    ]
+  },
+  "reproducibility": {
+    "single_threaded_numerical_execution": true,
+    "python_hash_seed": 0,
+    "fixed_chain_seeds": true,
+    "software_versions_recorded": true,
+    "platform_information_recorded": true,
+    "exact_input_hashes_recorded": true,
+    "posterior_draw_artifact_hashes_recorded": true,
+    "byte_identical_posterior_draws_promised_across_platforms": false,
+    "same_environment_repeat_requirement": "identical_candidate_inventory_and_matching_posterior_diagnostics_within_declared_numerical_tolerances",
+    "same_environment_candidate_inventory_byte_identical": true,
+    "posterior_summary_absolute_tolerance": 1e-10,
+    "posterior_summary_relative_tolerance": 1e-08,
+    "diagnostic_absolute_tolerance": 1e-08,
+    "tolerances_are_numerical_not_scientific": true
+  },
+  "execution_contract": {
+    "operations": ["validate", "prior_predictive", "populate_fit_cache", "fit"],
+    "validate": {
+      "sampling_permitted": false,
+      "posterior_review_required": false,
+      "required_outputs": [
+        "candidate_registry",
+        "observation_accounting",
+        "grouped_validation_folds",
+        "bayesian_modeling_report"
+      ]
+    },
+    "prior_predictive": {
+      "observed_outcomes_conditioned_on": false,
+      "posterior_sampling_permitted": false,
+      "required_outputs": [
+        "candidate_registry",
+        "observation_accounting",
+        "grouped_validation_folds",
+        "prior_predictive_diagnostics",
+        "bayesian_prior_predictive_review_template",
+        "bayesian_modeling_report"
+      ]
+    },
+    "fit": {
+      "prior_predictive_review_required": true,
+      "required_review_population": "candidate_multiplier_pairs_with_completed_prior_predictive_diagnostics",
+      "every_required_review_record_must_be_acknowledged": true,
+      "policy_amendment_required_record_permitted": false,
+      "policy_amendment_required_record_blocks_fit_operation": true,
+      "failed_prior_predictive_pairs_require_review_records": false,
+      "failed_prior_predictive_pairs_are_not_sampled": true,
+      "other_acknowledged_candidate_multiplier_pairs_may_proceed": true,
+      "posterior_sampling_starts_only_after_complete_required_review_validation": true,
+      "required_outputs": [
+        "candidate_registry",
+        "observation_accounting",
+        "grouped_validation_folds",
+        "prior_predictive_diagnostics",
+        "posterior_summaries",
+        "sampler_diagnostics",
+        "posterior_predictive_diagnostics",
+        "grouped_validation_predictions",
+        "grouped_validation_metrics",
+        "grouped_validation_condition_calibration",
+        "continuous_trajectory_summaries",
+        "continuous_trajectory_difference_summaries",
+        "prior_sensitivity_summaries",
+        "bayesian_modeling_report"
+      ],
+      "reference_posterior_required_for_analytical_availability": true,
+      "sensitivity_posterior_cannot_replace_failed_reference_posterior": true
+    },
+    "operation_specific_absent_tables_are_recorded_as_not_produced": true,
+    "partial_or_failed_operation_never_replaces_a_completed_output_directory": true,
+    "populate_fit_cache": {
+      "sampling_permitted": true,
+      "posterior_sampling_permitted": true,
+      "prior_predictive_review_required": true,
+      "publishes_analytical_artifacts": false,
+      "required_outputs": []
+    }
+  },
+  "output_contract": {
+    "report_file": "bayesian_modeling_report.json",
+    "tables": [
+      "candidate_registry",
+      "observation_accounting",
+      "grouped_validation_folds",
+      "prior_predictive_diagnostics",
+      "posterior_summaries",
+      "sampler_diagnostics",
+      "posterior_predictive_diagnostics",
+      "grouped_validation_predictions",
+      "grouped_validation_metrics",
+      "grouped_validation_condition_calibration",
+      "continuous_trajectory_summaries",
+      "continuous_trajectory_difference_summaries",
+      "prior_sensitivity_summaries"
+    ],
+    "posterior_directory": "posterior_draws",
+    "failed_candidates_remain_in_registry": true,
+    "exact_table_schemas_required": true,
+    "input_hashes_required": true,
+    "table_hashes_required": true,
+    "posterior_hashes_required": true,
+    "embedded_policy_required": true,
+    "transactional_publication_required": true,
+    "post_publication_validation_required": true,
+    "silent_failure_permitted": false,
+    "silent_candidate_exclusion_permitted": false,
+    "silent_prior_change_permitted": false,
+    "silent_specification_change_permitted": false,
+    "prior_predictive_review_template_file": "bayesian_prior_predictive_review_template.json",
+    "posterior_artifact_format": "arviz_inference_data_netcdf",
+    "posterior_artifact_groups": [
+      "posterior",
+      "sample_stats",
+      "posterior_predictive",
+      "observed_data",
+      "constant_data"
+    ],
+    "reference_and_sensitivity_posterior_artifacts_separate": true,
+    "analytical_status_recorded_per_candidate_and_prior_multiplier": true,
+    "continuous_difference_records_require_estimand_decision_identity": true,
+    "continuous_difference_records_require_interpretation_restriction_codes": true
+  },
+  "stochastic_process_environment": {
+    "required_environment_variables": {
+      "PYTHONHASHSEED": "0",
+      "OMP_NUM_THREADS": "1",
+      "OPENBLAS_NUM_THREADS": "1",
+      "MKL_NUM_THREADS": "1",
+      "NUMEXPR_NUM_THREADS": "1",
+      "VECLIB_MAXIMUM_THREADS": "1",
+      "BLIS_NUM_THREADS": "1"
+    },
+    "validation_required_before_loading_pymc": true,
+    "environment_values_recorded": true,
+    "environment_values_included_in_software_environment_identity": true,
+    "mismatched_environment_action": "abort_before_stochastic_execution"
+  },
+  "posterior_artifact_contract": {
+    "likelihood_variable_name": "log_outcome_observation",
+    "likelihood_scale": "natural_log_outcome",
+    "likelihood_distribution": "student_t",
+    "original_scale_predictive_variable_name": "posterior_predictive_outcome",
+    "original_scale_predictive_derivation": "exponential_of_posterior_predictive_log_outcome_observation",
+    "nonfinite_original_scale_predictions_recorded": true,
+    "nonfinite_original_scale_predictions_silently_removed": false,
+    "free_random_variable_names": [
+      "population_intercept",
+      "population_horizon_slope",
+      "condition_intercept_noncentered",
+      "condition_horizon_slope_noncentered",
+      "condition_intercept_standard_deviation",
+      "condition_horizon_slope_standard_deviation",
+      "cell_random_effect_cholesky_packed",
+      "cell_random_effect_noncentered",
+      "residual_standard_deviation",
+      "student_t_degrees_of_freedom_minus_two"
+    ],
+    "posterior_deterministic_variable_names": [
+      "condition_intercept_deviation",
+      "condition_horizon_slope_deviation",
+      "condition_intercept",
+      "condition_horizon_slope",
+      "cell_random_effect_cholesky",
+      "cell_random_effect_standard_deviations",
+      "cell_intercept_slope_correlation",
+      "cell_intercept",
+      "cell_horizon_slope",
+      "student_t_degrees_of_freedom",
+      "observation_location"
+    ],
+    "pymc_posterior_predictive_variable_names": [
+      "log_outcome_observation"
+    ],
+    "derived_posterior_predictive_variable_names": [
+      "posterior_predictive_outcome"
+    ],
+    "coordinate_names": [
+      "condition_protocol_identity",
+      "cell_identity",
+      "observation_index",
+      "random_effect_coefficient",
+      "random_effect_coefficient_aux"
+    ],
+    "variable_dimensions": {
+      "condition_intercept_noncentered": [
+        "condition_protocol_identity"
+      ],
+      "condition_horizon_slope_noncentered": [
+        "condition_protocol_identity"
+      ],
+      "condition_intercept_deviation": [
+        "condition_protocol_identity"
+      ],
+      "condition_horizon_slope_deviation": [
+        "condition_protocol_identity"
+      ],
+      "condition_intercept": [
+        "condition_protocol_identity"
+      ],
+      "condition_horizon_slope": [
+        "condition_protocol_identity"
+      ],
+      "cell_random_effect_noncentered": [
+        "cell_identity",
+        "random_effect_coefficient"
+      ],
+      "cell_random_effect_cholesky": [
+        "random_effect_coefficient",
+        "random_effect_coefficient_aux"
+      ],
+      "cell_random_effect_standard_deviations": [
+        "random_effect_coefficient"
+      ],
+      "cell_intercept": [
+        "cell_identity"
+      ],
+      "cell_horizon_slope": [
+        "cell_identity"
+      ],
+      "observation_location": [
+        "observation_index"
+      ],
+      "log_outcome_observation": [
+        "observation_index"
+      ],
+      "posterior_predictive_outcome": [
+        "observation_index"
+      ]
+    },
+    "diagnostics_cover_every_free_random_variable": true,
+    "coordinate_dimension_required": true,
+    "posterior_predictive_requires_coordinate_dimension": true
+  },
+  "amendment": {
+    "reason": "Completes and freezes the posterior-execution contract, including 2,000 tuning and 2,000 retained posterior draws per chain, implementation-bound resumable cache identities, cache-only sharded execution, deterministic new-cell prediction, grouped held-out-cell validation, prior-sensitivity reporting without an unregistered binary materiality threshold, analytical qualification and transactional publication. The lineage is corrected to Bayesian modeling policy version 1.16. Priors, likelihood, candidate authorization, support domains, diagnostic thresholds and qualification rules were not selected from Bayesian posterior effect direction or preferred analytical results.",
+    "result_informed": false,
+    "result_informed_scope": "implementation_completion_and_lineage_correction_only_no_bayesian_posterior_result_used_to_select_the_registered_model_or_acceptance_rules",
+    "affected_analyses": [
+      "prior_predictive_execution",
+      "posterior_execution",
+      "grouped_validation_execution",
+      "posterior_predictive_reporting",
+      "analytical_qualification",
+      "trajectory_reporting",
+      "prior_sensitivity_reporting",
+      "cache_identity",
+      "artifact_publication"
+    ],
+    "complete_rerun_required": true
+  }
+}
