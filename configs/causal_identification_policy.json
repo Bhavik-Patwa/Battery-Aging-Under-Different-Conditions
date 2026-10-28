@@ -1,0 +1,345 @@
+{
+    "policy_version": "1.5",
+    "effective_date": "2026-10-19",
+    "previous_policy_sha256": "220b17c7a6ca963971a21765c87c5a544fc9c8ec7704e092cfe8ceda50c7a60f",
+    "registration": {
+        "status": "registered_before_bayesian_model_fitting",
+        "descriptive_results_available_at_registration": true,
+        "causal_model_results_available_at_registration": false,
+        "outcome_values_used_for_identification_decisions": false,
+        "predictive_performance_used_for_identification_decisions": false,
+        "result_informed": false
+    },
+    "amendment": {
+        "reason": "Rejecting duplicate JSON fields and fail-closing every categorical estimand field used for identification and associational-model authorization.",
+        "result_informed": false,
+        "affected_analyses": [
+            "input_loading",
+            "policy_validation",
+            "estimand_validation",
+            "report_validation"
+        ],
+        "complete_reassessment_required": true
+    },
+    "independent_unit": "cell_identity",
+    "decision_identity_fields": [
+        "decision_scope",
+        "first_condition_protocol_identity",
+        "second_condition_protocol_identity",
+        "outcome",
+        "cohort",
+        "horizon_axis"
+    ],
+    "upstream_estimand_contract": {
+        "aging_modes": [
+            "calendar_aging",
+            "cycle_aging"
+        ],
+        "decision_scopes": [
+            "condition_protocol_pair"
+        ],
+        "outcomes": [
+            "relative_capacity",
+            "relative_dc_internal_resistance"
+        ],
+        "cohorts": [
+            "primary",
+            "sensitivity"
+        ],
+        "horizon_axes_by_aging_mode": {
+            "calendar_aging": [
+                "elapsed_calendar_days"
+            ],
+            "cycle_aging": [
+                "elapsed_calendar_days",
+                "cumulative_full_equivalent_cycles_observed"
+            ]
+        },
+        "support_classifications": [
+            "unsupported",
+            "descriptive_only",
+            "supported_with_restrictions",
+            "sensitivity_only"
+        ],
+        "causal_identification_statuses": [
+            "not_established"
+        ],
+        "cross_stage_transportability_statuses": [
+            "not_applicable"
+        ],
+        "sensitivity_only_permitted_cohorts": [
+            "sensitivity"
+        ]
+    },
+    "required_design_evidence": {
+        "cell_to_condition_randomization_status": "not_established_in_validated_inputs_or_primary_publication",
+        "causal_interpretation": "not_established",
+        "cross_stage_transportability_status": "not_established_requires_model_dependent_joint_support_and_exchangeability_assessment",
+        "calendar_net_storage_exposure_status": "unavailable_not_authorized",
+        "equipment_adjustment_status": "not_authorized_from_aggregated_measurement_history",
+        "baseline_adjustment_status": "descriptive_only_model_adjustment_requires_explicit_model_specific_justification"
+    },
+    "identification_requirements": {
+        "assignment_mechanism_required": true,
+        "conditional_exchangeability_required_for_covariate_adjustment": true,
+        "conditional_positivity_required": true,
+        "consistency_and_well_defined_treatment_versions_required": true,
+        "no_interference_required": true,
+        "selection_process_identification_required": true,
+        "outcome_measurement_assumptions_required": true,
+        "cross_stage_transportability_requires_explicit_assumptions": true,
+        "absence_of_evidence_never_satisfies_an_assumption": true,
+        "bayesian_estimation_alone_establishes_identification": false
+    },
+    "identification_strategies_assessed": {
+        "overall_status": "no_supported_identification_strategy",
+        "documented_random_assignment": "not_established",
+        "pretreatment_covariate_adjustment": "not_authorized_no_sufficient_adjustment_set",
+        "instrumental_variable": "not_established",
+        "regression_discontinuity": "not_established",
+        "difference_in_differences": "not_established",
+        "other_natural_experiment": "not_established"
+    },
+    "estimand_interpretations": {
+        "calendar_elapsed_time": {
+            "horizon_axis": "elapsed_calendar_days",
+            "authorized_target": "whole_assigned_protocol_outcome_difference_at_common_elapsed_calendar_time",
+            "exposure_time_interpretation": "whole_assigned_protocol_gross_elapsed_calendar_time",
+            "horizon_conditioning_status": "gross_elapsed_time_not_net_storage_exposure",
+            "net_storage_effect_authorized": false,
+            "interpretation": "Gross elapsed calendar days include storage, reference testing and documented pauses. They do not identify net storage exposure."
+        },
+        "cycle_elapsed_time": {
+            "horizon_axis": "elapsed_calendar_days",
+            "authorized_target": "outcome_difference_at_common_elapsed_calendar_days",
+            "exposure_time_interpretation": "assigned_cycling_protocol_at_common_elapsed_calendar_time",
+            "horizon_conditioning_status": "elapsed_time_axis",
+            "interpretation": "Elapsed-time comparisons describe observed assigned cycling protocols at common whole-protocol time."
+        },
+        "cycle_fec": {
+            "horizon_axis": "cumulative_full_equivalent_cycles_observed",
+            "authorized_target": "outcome_difference_at_common_cumulative_full_equivalent_cycles_observed",
+            "exposure_time_interpretation": "assigned_cycling_protocol_at_common_observed_fec",
+            "horizon_conditioning_status": "post_assignment_achieved_exposure_axis",
+            "interpretation": "Observed cumulative fully equivalent cycles are accumulated after assignment. A causal contrast at achieved FEC requires an explicit intervention and selection interpretation."
+        }
+    },
+    "current_identification_status": {
+        "assignment_mechanism": "not_established",
+        "conditional_exchangeability": "not_established",
+        "sufficient_pretreatment_adjustment_set": "not_authorized",
+        "conditional_positivity": "not_established",
+        "consistency": "not_established_for_causal_interventions",
+        "no_interference": "not_established",
+        "selection_process": "not_established",
+        "outcome_measurement_error_process": "not_established_for_causal_identification",
+        "cross_stage_transportability": "not_established",
+        "calendar_net_storage_exposure": "unavailable",
+        "causal_point_identification": "not_identified_from_observed_design"
+    },
+    "reason_code_rules": {
+        "universal_point_identification": [
+        "CAUSAL_IDENTIFICATION_NOT_ESTABLISHED_UPSTREAM",
+        "ASSIGNMENT_MECHANISM_NOT_ESTABLISHED",
+        "SUFFICIENT_PRETREATMENT_ADJUSTMENT_SET_NOT_AUTHORIZED",
+        "ALTERNATIVE_IDENTIFICATION_STRATEGY_NOT_ESTABLISHED",
+        "CONDITIONAL_POSITIVITY_NOT_ESTABLISHED",
+        "TREATMENT_VERSION_CONSISTENCY_NOT_ESTABLISHED",
+        "NO_INTERFERENCE_NOT_ESTABLISHED",
+        "SELECTION_PROCESS_NOT_IDENTIFIED",
+        "OUTCOME_MEASUREMENT_ERROR_PROCESS_NOT_ESTABLISHED"
+        ],
+        "calendar_elapsed_time": {
+        "causal_reason_codes": [],
+        "interpretation_restriction_codes": [
+            "NET_CALENDAR_AGING_EXPOSURE_UNAVAILABLE"
+        ]
+        },
+        "cycle_elapsed_time": {
+        "causal_reason_codes": [],
+        "interpretation_restriction_codes": []
+        },
+        "cycle_fec": {
+        "causal_reason_codes": [
+            "POST_ASSIGNMENT_FEC_HORIZON_NOT_IDENTIFIED"
+        ],
+        "interpretation_restriction_codes": []
+        },
+        "cross_stage_comparison": {
+        "causal_reason_codes": [
+            "CROSS_STAGE_TRANSPORTABILITY_NOT_ESTABLISHED"
+        ],
+        "interpretation_restriction_codes": []
+        },
+        "equipment_restriction": {
+        "causal_reason_codes": [],
+        "interpretation_restriction_codes": [
+            "RECORDED_EQUIPMENT_ALLOCATION_RESTRICTION"
+        ]
+        },
+        "associational_model_not_authorized": {
+        "causal_reason_codes": [],
+        "interpretation_restriction_codes": [
+            "DESIGN_SUPPORT_NOT_AUTHORIZED"
+        ]
+        }
+    },
+    "assumption_inventory": [
+        {
+        "assumption_name": "treatment_assignment",
+        "assumption_scope": "all_estimands",
+        "evidence_status": "not_established",
+        "required_for_point_identification": true,
+        "evidence_source": "experimental_design_report.cell_to_condition_randomization_status",
+        "observed_evidence": "not_established_in_validated_inputs_or_primary_publication",
+        "analytical_implication": "causal_point_identification_not_available",
+        "reason_code": "ASSIGNMENT_MECHANISM_NOT_ESTABLISHED"
+        },
+        {
+        "assumption_name": "conditional_exchangeability",
+        "assumption_scope": "all_estimands",
+        "evidence_status": "not_established",
+        "required_for_point_identification": true,
+        "evidence_source": "experimental_design_report.formal_handoff.baseline_covariate_contract",
+        "observed_evidence": "no_authorized_sufficient_pretreatment_adjustment_set",
+        "analytical_implication": "covariate_adjusted_causal_interpretation_not_authorized",
+        "reason_code": "SUFFICIENT_PRETREATMENT_ADJUSTMENT_SET_NOT_AUTHORIZED"
+        },
+        {
+        "assumption_name": "conditional_positivity",
+        "assumption_scope": "all_estimands",
+        "evidence_status": "not_established",
+        "required_for_point_identification": true,
+        "evidence_source": "estimand_support.csv",
+        "observed_evidence": "observed_pairwise_support_does_not_establish_positivity_conditional_on_an_unavailable_adjustment_set",
+        "analytical_implication": "causal_positivity_claim_not_authorized",
+        "reason_code": "CONDITIONAL_POSITIVITY_NOT_ESTABLISHED"
+        },
+        {
+        "assumption_name": "consistency_and_treatment_versions",
+        "assumption_scope": "all_estimands",
+        "evidence_status": "not_established_for_causal_interventions",
+        "required_for_point_identification": true,
+        "evidence_source": "dataset_quality_audit_and_estimand_support",
+        "observed_evidence": "assigned_joint_protocols_are_observed_but_intervention_versions_and_protocol_deviations_are_not_causally_resolved",
+        "analytical_implication": "causal_intervention_language_not_authorized",
+        "reason_code": "TREATMENT_VERSION_CONSISTENCY_NOT_ESTABLISHED"
+        },
+        {
+        "assumption_name": "no_interference",
+        "assumption_scope": "all_estimands",
+        "evidence_status": "not_established",
+        "required_for_point_identification": true,
+        "evidence_source": "validated_inputs",
+        "observed_evidence": "shared_laboratory_chamber_and_equipment_structure_is_recorded_but_interference_is_not_assessed",
+        "analytical_implication": "causal_interpretation_not_authorized",
+        "reason_code": "NO_INTERFERENCE_NOT_ESTABLISHED"
+        },
+        {
+        "assumption_name": "selection_and_outcome_availability",
+        "assumption_scope": "all_estimands",
+        "evidence_status": "not_established",
+        "required_for_point_identification": true,
+        "evidence_source": "cohort_eligibility_feature_availability_and_incident_records",
+        "observed_evidence": "analytical_inclusion_depends_on_feature_availability_incidents_and_longitudinal_exposure_completeness",
+        "analytical_implication": "selection_ignorability_not_authorized",
+        "reason_code": "SELECTION_PROCESS_NOT_IDENTIFIED"
+        },
+        {
+        "assumption_name": "outcome_measurement",
+        "assumption_scope": "all_estimands",
+        "evidence_status": "validated_feature_definitions_without_causal_measurement_error_identification",
+        "required_for_point_identification": true,
+        "evidence_source": "feature_manifest_and_quality_audit",
+        "observed_evidence": "primary_outcomes_are_validated_but_differential_measurement_error_is_not_established_absent",
+        "analytical_implication": "causal_measurement_error_assumption_not_satisfied",
+        "reason_code": "OUTCOME_MEASUREMENT_ERROR_PROCESS_NOT_ESTABLISHED"
+        },
+        {
+        "assumption_name": "achieved_fec_horizon",
+        "assumption_scope": "cycle_fec_estimands",
+        "evidence_status": "requires_explicit_causal_definition",
+        "required_for_point_identification": true,
+        "evidence_source": "estimand_support.csv",
+        "observed_evidence": "cumulative_fec_is_observed_after_condition_assignment",
+        "analytical_implication": "conditioning_on_achieved_fec_is_not_given_an_automatic_causal_interpretation",
+        "reason_code": "POST_ASSIGNMENT_FEC_HORIZON_NOT_IDENTIFIED"
+        },
+        {
+        "assumption_name": "calendar_exposure_definition",
+        "assumption_scope": "calendar_estimands",
+        "evidence_status": "net_storage_exposure_unavailable",
+        "required_for_point_identification": false,
+        "evidence_source": "experimental_design_report.formal_handoff.calendar_claim_boundary",
+        "observed_evidence": "gross_elapsed_time_between_reference_test_start_dates",
+        "analytical_implication": "calendar_estimands_are_restricted_to_whole_protocol_elapsed_time",
+        "reason_code": "NET_CALENDAR_AGING_EXPOSURE_UNAVAILABLE"
+        },
+        {
+        "assumption_name": "cross_stage_transportability",
+        "assumption_scope": "cross_stage_estimands",
+        "evidence_status": "not_established",
+        "required_for_point_identification": true,
+        "evidence_source": "experimental_design_report.cross_stage_transportability_status",
+        "observed_evidence": "stage_and_cell_batch_are_aligned",
+        "analytical_implication": "cross_stage_pooling_and_transport_not_authorized",
+        "reason_code": "CROSS_STAGE_TRANSPORTABILITY_NOT_ESTABLISHED"
+        }
+    ],
+    "model_authorization": {
+        "associational_hierarchical_modeling": {
+        "authorization_status": "partially_authorized",
+        "authorized_estimand_status": "authorized_with_recorded_restrictions",
+        "unauthorized_estimand_status": "not_authorized",
+        "permitted_support_classifications": [
+            "supported_with_restrictions",
+            "sensitivity_only"
+        ],
+        "causal_language_permitted": false,
+        "policy_language_permitted": false,
+        "unobserved_condition_combinations_permitted": false,
+        "cross_stage_pooling_permitted": false,
+        "primary_and_sensitivity_cohorts_pooled": false
+        },
+        "causal_modeling": {
+        "authorization_status": "not_authorized",
+        "reason": "required_identification_assumptions_are_not_established",
+        "bayesian_estimation_alone_establishes_identification": false
+        },
+        "causal_sensitivity_analysis": {
+        "authorization_status": "not_authorized",
+        "estimand_status": "not_authorized_without_registered_assumption_set",
+        "activation_requirement": "separately_versioned_explicit_assumption_set_with_parameter_interpretations_and_ranges",
+        "result_label": "assumption_dependent_causal_sensitivity"
+        }
+    },
+    "reason_codes": {
+        "CAUSAL_IDENTIFICATION_NOT_ESTABLISHED_UPSTREAM": "The validated design report does not establish causal identification.",
+        "ASSIGNMENT_MECHANISM_NOT_ESTABLISHED": "Cell-to-condition randomization or another assignment mechanism is not established.",
+        "SUFFICIENT_PRETREATMENT_ADJUSTMENT_SET_NOT_AUTHORIZED": "No sufficient pretreatment adjustment set is authorized.",
+        "ALTERNATIVE_IDENTIFICATION_STRATEGY_NOT_ESTABLISHED": "No instrumental-variable, discontinuity, longitudinal quasi-experimental or other natural-experiment strategy is established.",
+        "CONDITIONAL_POSITIVITY_NOT_ESTABLISHED": "Observed pairwise treatment support does not establish positivity conditional on a sufficient adjustment set.",
+        "TREATMENT_VERSION_CONSISTENCY_NOT_ESTABLISHED": "Treatment versions and protocol deviations are not sufficiently resolved for causal intervention interpretation.",
+        "NO_INTERFERENCE_NOT_ESTABLISHED": "The absence of interference between cells or through shared equipment is not established.",
+        "SELECTION_PROCESS_NOT_IDENTIFIED": "Selection through outcome availability, incidents or exposure completeness is not identified.",
+        "OUTCOME_MEASUREMENT_ERROR_PROCESS_NOT_ESTABLISHED": "Differential outcome measurement error is not established absent.",
+        "POST_ASSIGNMENT_FEC_HORIZON_NOT_IDENTIFIED": "A causal interpretation for conditioning on achieved fully equivalent cycles is not established.",
+        "NET_CALENDAR_AGING_EXPOSURE_UNAVAILABLE": "Gross elapsed time does not identify net storage exposure.",
+        "CROSS_STAGE_TRANSPORTABILITY_NOT_ESTABLISHED": "Stage and production batch are aligned and cross-stage transportability is not established.",
+        "RECORDED_EQUIPMENT_ALLOCATION_RESTRICTION": "The comparison contains a recorded equipment-allocation restriction.",
+        "DESIGN_SUPPORT_NOT_AUTHORIZED": "The comparison is not authorized for model evaluation.",
+        "EXPLICIT_CAUSAL_SENSITIVITY_ASSUMPTIONS_NOT_REGISTERED": "No explicit causal-sensitivity assumption set is registered."
+    },
+    "output_contract": {
+        "report_file": "causal_identification_report.json",
+        "estimand_table": "estimand_identification.csv",
+        "assumption_table": "assumption_inventory.csv",
+        "deterministic_ordering_required": true,
+        "input_hashes_required": true,
+        "table_hashes_required": true,
+        "exact_table_schemas_required": true,
+        "embedded_policy_required": true,
+        "post_publication_validation_required": true,
+        "design_evidence_only_for_identification_decisions": true
+    }
+}
