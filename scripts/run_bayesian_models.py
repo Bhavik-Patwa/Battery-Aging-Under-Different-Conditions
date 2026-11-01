@@ -13,18 +13,15 @@ import shutil
 import sys
 import tempfile
 import traceback
-import pytensor
-import arviz as az
-import pymc as pm
-import pytensor.tensor as pt
-import xarray as xr
 import numpy as np
 
-from collections import defaultdict
+from collections import Counter, defaultdict
 from datetime import date
 from pathlib import Path
 from importlib.metadata import version as distribution_version
 
+
+BAYESIAN_RUNTIME = None
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
@@ -67,6 +64,11 @@ CANDIDATE_REGISTRY_FIELDS = [
     "admissibility_status",
     "admissibility_reason_code",
     "candidate_execution_status",
+    "posterior_analytical_status",
+    "posterior_analytical_reason_code",
+    "posterior_qualification_failed_gates",
+    "posterior_status_by_prior_multiplier",
+    "posterior_reason_codes_by_prior_multiplier",
     "grouped_validation_status",
     "grouped_validation_reason_code",
     "effective_fold_count",
@@ -170,16 +172,19 @@ POSTERIOR_PREDICTIVE_DIAGNOSTIC_FIELDS = [
     "prior_scale_multiplier",
     "diagnostic_population",
     "condition_protocol_identity",
+    "horizon_bin_index",
     "observation_count",
     "cell_count",
+    "repeated_cell_count",
     "predictive_draw_count",
     "predictive_value_count",
     "predictive_nonfinite_count",
     "predictive_positive_finite_fraction",
-    "observed_median",
-    "predictive_median",
-    "predictive_median_absolute_deviation",
-    "predictive_quantiles",
+    "observed_statistics",
+    "posterior_predictive_statistic_medians",
+    "posterior_predictive_statistic_quantiles",
+    "within_cell_change_status",
+    "within_cell_change_reason_code",
     "diagnostic_status",
     "diagnostic_reason_code"
 ]
@@ -222,8 +227,8 @@ GROUPED_VALIDATION_METRIC_FIELDS = [
 GROUPED_VALIDATION_CONDITION_CALIBRATION_FIELDS = [
     "candidate_identity",
     "condition_protocol_identity",
-    "test_cell_count",
-    "test_observation_count",
+    "independent_cell_count",
+    "observation_count",
     "equal_cell_weighted_median_observed",
     "equal_cell_weighted_median_predicted",
     "equal_cell_weighted_median_error",
@@ -265,10 +270,16 @@ CONTINUOUS_TRAJECTORY_DIFFERENCE_SUMMARY_FIELDS = [
     "first_condition_protocol_identity",
     "second_condition_protocol_identity",
     "horizon",
+    "posterior_mean_difference",
     "posterior_median_difference",
     "credible_interval_lower",
     "credible_interval_upper",
     "probability_difference_above_zero",
+    "posterior_mean_ratio",
+    "posterior_median_ratio",
+    "ratio_credible_interval_lower",
+    "ratio_credible_interval_upper",
+    "probability_ratio_above_one",
     "interpretation_restriction_codes",
     "analytical_status",
     "analytical_reason_code",
@@ -342,7 +353,7 @@ REQUIRED_POLICY_SECTIONS = {
     "generative_prediction_contract", "admissibility", "sampling",
     "diagnostics", "predictive_assessment", "trajectory_reporting",
     "model_comparison", "reporting", "execution_planning",
-    "cache_contract", "reproducibility", "stochastic_process_environment",
+    "cache_contract", "cache_import_contract", "reproducibility", "stochastic_process_environment",
     "posterior_artifact_contract", "execution_contract",
     "output_contract", "amendment"
 }
@@ -604,6 +615,8 @@ def validate_stochastic_process_environment(policy: dict) -> None:
 
 # Building the recorded software-environment identity
 def build_software_environment_record(policy: dict) -> dict:
+    import pytensor as pytensor_runtime
+
     required_variables = policy["stochastic_process_environment"]["required_environment_variables"]
 
     environment_values = {
@@ -632,7 +645,7 @@ def build_software_environment_record(policy: dict) -> dict:
 
     try:
         pytensor_cxx = (
-            pytensor.config.cxx
+            pytensor_runtime.config.cxx
             or None
         )
 
@@ -721,7 +734,22 @@ def require_compiler_environment(environment_record: dict) -> None:
 
 # Loading stochastic dependencies only after environment validation
 def load_bayesian_runtime() -> tuple:
-    return pm, pt, az, xr
+    global BAYESIAN_RUNTIME
+
+    if BAYESIAN_RUNTIME is None:
+        import arviz
+        import pymc
+        import pytensor.tensor
+        import xarray
+
+        BAYESIAN_RUNTIME = (
+            pymc,
+            pytensor.tensor,
+            arviz,
+            xarray
+        )
+
+    return BAYESIAN_RUNTIME
 
 
 # Preparing deterministic candidate arrays for PyMC
@@ -2135,7 +2163,10 @@ def validate_finite_posterior_draws(inference_data, policy: dict) -> None:
 
 
 # Validating one posterior artifact against the registered contract
-def validate_posterior_inference_data(inference_data, candidate: dict, policy: dict) -> None:
+def validate_posterior_inference_data(inference_data, candidate: dict,
+                                      policy: dict, observations: list[dict] | None = None,
+                                      require_posterior_predictive: bool = True
+) -> None:
     required_groups = set(
         policy[
             "output_contract"
@@ -2143,6 +2174,11 @@ def validate_posterior_inference_data(inference_data, candidate: dict, policy: d
             "posterior_artifact_groups"
         ]
     )
+
+    if not require_posterior_predictive:
+        required_groups.discard(
+            "posterior_predictive"
+        )
 
     observed_groups = {
         group_name
@@ -2184,32 +2220,38 @@ def validate_posterior_inference_data(inference_data, candidate: dict, policy: d
     if missing_posterior_variables:
         raise RuntimeError(f"Posterior artifact is missing registered variables : {sorted(missing_posterior_variables)}")
 
-    required_predictive_variables = (
-        set(
-            artifact_contract[
-                "pymc_posterior_predictive_variable_names"
-            ]
+    if require_posterior_predictive:
+        required_predictive_variables = (
+            set(
+                artifact_contract[
+                    "pymc_posterior_predictive_variable_names"
+                ]
+            )
+            | set(
+                artifact_contract[
+                    "derived_posterior_predictive_variable_names"
+                ]
+            )
         )
-        | set(
-            artifact_contract[
-                "derived_posterior_predictive_variable_names"
-            ]
-        )
-    )
 
-    missing_predictive_variables = (
-        required_predictive_variables
-        - set(
-            inference_data.posterior_predictive.data_vars
+        missing_predictive_variables = (
+            required_predictive_variables
+            - set(
+                inference_data.posterior_predictive.data_vars
+            )
         )
-    )
 
-    if missing_predictive_variables:
-        raise RuntimeError(f"Posterior artifact is missing predictive variables : {sorted(missing_predictive_variables)}")
+        if missing_predictive_variables:
+            raise RuntimeError(f"Posterior artifact is missing predictive variables : {sorted(missing_predictive_variables)}")
+
+    expected_data = prepare_pymc_candidate_data(
+        candidate = candidate,
+        observations = observations
+    )
 
     expected_observation_count = len(
-        candidate[
-            "included_observations"
+        expected_data[
+            "observations"
         ]
     )
 
@@ -2219,19 +2261,107 @@ def validate_posterior_inference_data(inference_data, candidate: dict, policy: d
         ]
     )
 
-    predictive_count = int(
-        inference_data.posterior_predictive.sizes[
-            "observation_index"
-        ]
-    )
-
     if (
         observed_data_count
         != expected_observation_count
-        or predictive_count
-        != expected_observation_count
     ):
         raise RuntimeError("Posterior artifact has an inconsistent observation dimension.")
+
+    if require_posterior_predictive:
+        predictive_count = int(
+            inference_data.posterior_predictive.sizes[
+                "observation_index"
+            ]
+        )
+
+        if (
+            predictive_count
+            != expected_observation_count
+        ):
+            raise RuntimeError("Posterior artifact has an inconsistent observation dimension.")
+
+    for coordinate_name, expected_values in {
+        "condition_protocol_identity": (
+            expected_data[
+                "condition_identities"
+            ]
+        ),
+        "cell_identity": (
+            expected_data[
+                "cell_identities"
+            ]
+        ),
+        "observation_index": list(
+            range(
+                expected_observation_count
+            )
+        )
+    }.items():
+        observed_values = [
+            str(
+                value
+            )
+            for value in inference_data.posterior.coords[
+                coordinate_name
+            ].values.tolist()
+        ]
+
+        expected_strings = [
+            str(
+                value
+            )
+            for value in expected_values
+        ]
+
+        if observed_values != expected_strings:
+            raise RuntimeError(f"Posterior artifact coordinate mismatch : {coordinate_name}")
+
+    for variable_name, expected_values in {
+        "condition_index": expected_data[
+            "condition_indices"
+        ],
+        "cell_index": expected_data[
+            "cell_indices"
+        ],
+        "scaled_horizon": expected_data[
+            "scaled_horizons"
+        ]
+    }.items():
+        if variable_name not in inference_data.constant_data:
+            raise RuntimeError(f"Posterior artifact constant data is missing : {variable_name}")
+
+        observed_values = np.asarray(
+            inference_data.constant_data[
+                variable_name
+            ].values
+        )
+
+        if not np.array_equal(
+            observed_values,
+            np.asarray(
+                expected_values
+            )
+        ):
+            raise RuntimeError(f"Posterior artifact constant data mismatch : {variable_name}")
+
+    observed_log_outcomes = np.asarray(
+        inference_data.observed_data[
+            policy[
+                "posterior_artifact_contract"
+            ][
+                "likelihood_variable_name"
+            ]
+        ].values,
+        dtype = float
+    )
+
+    if not np.array_equal(
+        observed_log_outcomes,
+        expected_data[
+            "log_outcomes"
+        ]
+    ):
+        raise RuntimeError("Posterior artifact observed outcomes differ from the registered model input.")
 
     for variable_name in inference_data.posterior.data_vars:
         variable_values = np.asarray(
@@ -2247,45 +2377,46 @@ def validate_posterior_inference_data(inference_data, candidate: dict, policy: d
         ):
             raise RuntimeError(f"Posterior artifact contains non-finite posterior values : {variable_name}")
 
-    likelihood_variable_name = artifact_contract[
-        "likelihood_variable_name"
-    ]
-
-    likelihood_predictive_values = np.asarray(
-        inference_data.posterior_predictive[
-            likelihood_variable_name
-        ].values
-    )
-
-    if not np.all(
-        np.isfinite(
-            likelihood_predictive_values
-        )
-    ):
-        raise RuntimeError("Posterior artifact contains non-finite log-scale predictive values.")
-
-    original_scale_variable = (
-        artifact_contract[
-            "original_scale_predictive_variable_name"
+    if require_posterior_predictive:
+        likelihood_variable_name = artifact_contract[
+            "likelihood_variable_name"
         ]
-    )
 
-    original_scale_values = np.asarray(
-        inference_data.posterior_predictive[
-            original_scale_variable
-        ].values
-    )
-
-    finite_original_scale_values = original_scale_values[
-        np.isfinite(
-            original_scale_values
+        likelihood_predictive_values = np.asarray(
+            inference_data.posterior_predictive[
+                likelihood_variable_name
+            ].values
         )
-    ]
 
-    if np.any(
-        finite_original_scale_values <= 0
-    ):
-        raise RuntimeError("Posterior artifact contains nonpositive original-scale predictions.")
+        if not np.all(
+            np.isfinite(
+                likelihood_predictive_values
+            )
+        ):
+            raise RuntimeError("Posterior artifact contains non-finite log-scale predictive values.")
+
+        original_scale_variable = (
+            artifact_contract[
+                "original_scale_predictive_variable_name"
+            ]
+        )
+
+        original_scale_values = np.asarray(
+            inference_data.posterior_predictive[
+                original_scale_variable
+            ].values
+        )
+
+        finite_original_scale_values = original_scale_values[
+            np.isfinite(
+                original_scale_values
+            )
+        ]
+
+        if np.any(
+            finite_original_scale_values <= 0
+        ):
+            raise RuntimeError("Posterior artifact contains nonpositive original-scale predictions.")
 
 
 # Calculating complete registered sampler diagnostics
@@ -2964,6 +3095,94 @@ def build_cache_identity(policy: dict, policy_sha256: str,
     return identity_payload
 
 
+# Reconstructing one explicitly authorized source-cache identity
+def build_import_source_cache_identity(policy: dict, cache_identity: dict) -> dict | None:
+    import_contract = policy["cache_import_contract"]
+
+    if not import_contract["enabled"]:
+        return None
+
+    if cache_identity["operation"] not in set(import_contract["permitted_operations"]):
+        return None
+
+    if cache_identity["verified_input_hashes"] != import_contract["verified_input_hashes"]:
+        raise RuntimeError("Registered cache import input hashes do not match the current analysis inputs.")
+
+    source_identity = {
+        "policy_sha256": import_contract["source_policy_sha256"],
+        "verified_input_hashes": import_contract["verified_input_hashes"],
+        "candidate_identity": cache_identity["candidate_identity"],
+        "operation": cache_identity["operation"],
+        "prior_scale_multiplier": float(cache_identity["prior_scale_multiplier"]),
+        "validation_fold_identity": cache_identity["validation_fold_identity"],
+        "software_environment_sha256": import_contract["source_software_environment_sha256"],
+        "implementation_sha256": import_contract["source_implementation_sha256"]
+    }
+    source_identity["cache_identity_sha256"] = deterministic_identity(source_identity)
+    return source_identity
+
+
+# Reconciling the complete registered source-cache inventory before reuse
+def validate_registered_source_cache_inventory(cache_directory: Path, policy: dict) -> None:
+    import_contract = policy["cache_import_contract"]
+
+    if not import_contract["enabled"]:
+        return
+
+    operation_counts = Counter()
+    source_entry_count = 0
+
+    if not cache_directory.is_dir():
+        raise RuntimeError("Registered source cache directory is unavailable.")
+
+    for entry_directory in sorted(cache_directory.iterdir()):
+        metadata_path = entry_directory / policy["cache_contract"]["cache_metadata_file"]
+
+        if not entry_directory.is_dir() or not metadata_path.is_file():
+            continue
+
+        try:
+            metadata_record = json.loads(metadata_path.read_text(encoding = "utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+
+        source_identity = metadata_record.get("cache_identity", {})
+
+        if source_identity.get("policy_sha256") != import_contract["source_policy_sha256"]:
+            continue
+
+        source_entry_count += 1
+        operation_counts[source_identity.get("operation")] += 1
+
+        if source_identity.get("implementation_sha256") != import_contract["source_implementation_sha256"]:
+            raise RuntimeError("Registered source cache contains an unexpected implementation identity.")
+
+        if source_identity.get("software_environment_sha256") != import_contract["source_software_environment_sha256"]:
+            raise RuntimeError("Registered source cache contains an unexpected software environment identity.")
+
+        if source_identity.get("verified_input_hashes") != import_contract["verified_input_hashes"]:
+            raise RuntimeError("Registered source cache contains unexpected input hashes.")
+
+        if metadata_record.get("execution_status") != import_contract["required_source_execution_status"]:
+            raise RuntimeError("Registered source cache contains an incomplete execution status.")
+
+        if import_contract["inference_data_required"] and not (
+            entry_directory / policy["cache_contract"]["cache_inference_data_file"]
+        ).is_file():
+            raise RuntimeError("Registered source cache is missing inference data.")
+
+    if source_entry_count != import_contract["required_source_entry_count"]:
+        raise RuntimeError(
+            "Registered source cache entry count differs from the import contract : "
+            f"{source_entry_count}"
+        )
+
+    if dict(sorted(operation_counts.items())) != dict(
+        sorted(import_contract["required_operation_counts"].items())
+    ):
+        raise RuntimeError("Registered source cache operation counts do not reconcile.")
+
+
 # Building the deterministic cache entry directory
 def build_cache_entry_directory(cache_directory: Path, cache_identity: dict) -> Path:
     return (
@@ -3035,8 +3254,22 @@ def read_validated_cache_entry(cache_directory: Path, cache_identity: dict,
 
         if (
             metadata_record[
-                "cache_identity_sha256"
+                "cache_identity"
             ]
+            != cache_identity
+        ):
+            return None, None, "CACHE_IDENTITY_MISMATCH"
+
+        stored_identity_payload = {
+            key: value for key, value in metadata_record["cache_identity"].items()
+            if key != "cache_identity_sha256"
+        }
+
+        if deterministic_identity(stored_identity_payload) != metadata_record["cache_identity_sha256"]:
+            return None, None, "CACHE_IDENTITY_MISMATCH"
+
+        if (
+            entry_directory.name
             != cache_identity[
                 "cache_identity_sha256"
             ]
@@ -3114,7 +3347,18 @@ def read_validated_cache_entry(cache_directory: Path, cache_identity: dict,
     if set(completion_record) != set(policy["cache_contract"]["cache_completion_fields"]):
         return None, None, "CACHE_METADATA_SCHEMA_INVALID"
 
-    if metadata_record["cache_identity_sha256"] != cache_identity["cache_identity_sha256"]:
+    if metadata_record["cache_identity"] != cache_identity:
+        return None, None, "CACHE_IDENTITY_MISMATCH"
+
+    stored_identity_payload = {
+        key: value for key, value in metadata_record["cache_identity"].items()
+        if key != "cache_identity_sha256"
+    }
+
+    if deterministic_identity(stored_identity_payload) != metadata_record["cache_identity_sha256"]:
+        return None, None, "CACHE_IDENTITY_MISMATCH"
+
+    if entry_directory.name != cache_identity["cache_identity_sha256"]:
         return None, None, "CACHE_IDENTITY_MISMATCH"
 
     if completion_record["cache_metadata_sha256"] != calculate_file_sha256(metadata_path):
@@ -3149,6 +3393,74 @@ def read_validated_cache_entry(cache_directory: Path, cache_identity: dict,
         return None, None, "CACHE_ARTIFACT_HASH_MISMATCH"
 
     return inference_data, diagnostics, None
+
+
+# Loading a current cache entry or a registered immutable source entry
+def read_cache_entry_with_registered_import(cache_directory: Path, cache_identity: dict,
+                                            policy: dict
+) -> tuple[
+    object | None,
+    object | None,
+    str | None,
+    dict,
+    bool
+]:
+    (
+        inference_data,
+        diagnostics,
+        miss_reason
+    ) = read_validated_cache_entry(
+        cache_directory,
+        cache_identity,
+        policy
+    )
+
+    if inference_data is not None:
+        return (
+            inference_data,
+            diagnostics,
+            None,
+            cache_identity,
+            False
+        )
+
+    source_identity = build_import_source_cache_identity(
+        policy,
+        cache_identity
+    )
+
+    if source_identity is None:
+        return (
+            inference_data,
+            diagnostics,
+            miss_reason,
+            cache_identity,
+            False
+        )
+
+    (
+        source_inference,
+        source_diagnostics,
+        source_miss_reason
+    ) = read_validated_cache_entry(
+        cache_directory,
+        source_identity,
+        policy
+    )
+
+    if source_inference is None:
+        raise RuntimeError(
+            "Registered immutable source cache entry is unavailable or invalid : "
+            f"{source_identity['cache_identity_sha256']} : {source_miss_reason}"
+        )
+
+    return (
+        source_inference,
+        source_diagnostics,
+        None,
+        source_identity,
+        True
+    )
 
 
 # Quarantining a corrupt cache entry
@@ -3457,6 +3769,7 @@ def execute_prior_predictive_sampling(workflow: dict, cache_directory: Path,
         "completed_call_count": 0,
         "failed_call_count": 0,
         "reused_cache_count": 0,
+        "imported_cache_count": 0,
         "new_cache_count": 0
     }
 
@@ -3491,8 +3804,10 @@ def execute_prior_predictive_sampling(workflow: dict, cache_directory: Path,
             (
                 cached_inference_data,
                 cached_diagnostics,
-                cache_miss_reason
-            ) = read_validated_cache_entry(
+                cache_miss_reason,
+                loaded_cache_identity,
+                imported_cache
+            ) = read_cache_entry_with_registered_import(
                 cache_directory = cache_directory,
                 cache_identity = cache_identity,
                 policy = policy
@@ -3504,7 +3819,9 @@ def execute_prior_predictive_sampling(workflow: dict, cache_directory: Path,
             ):
                 diagnostic_records.extend(cached_diagnostics)
                 execution_accounting["completed_call_count"] += 1
-                execution_accounting["reused_cache_count"] += 1
+                execution_accounting[
+                    "imported_cache_count" if imported_cache else "reused_cache_count"
+                ] += 1
                 del cached_inference_data
                 continue
 
@@ -3514,7 +3831,7 @@ def execute_prior_predictive_sampling(workflow: dict, cache_directory: Path,
             ):
                 quarantine_corrupt_cache_entry(
                     cache_directory = cache_directory,
-                    cache_identity = cache_identity,
+                    cache_identity = loaded_cache_identity,
                     reason_code = cache_miss_reason
                 )
 
@@ -3849,6 +4166,25 @@ def validate_posterior_cache_diagnostics(cached_diagnostics: object, candidate_i
         ):
             raise RuntimeError("Posterior parameter diagnostics reference the wrong fit.")
 
+    if parameter_records:
+        all_parameters_passed = all(
+            parameter_record["diagnostic_status"] == "completed_passed"
+            for parameter_record in parameter_records
+        )
+
+        any_parameter_failed = any(
+            parameter_record["diagnostic_status"] == "completed_failed"
+            for parameter_record in parameter_records
+        )
+
+        aggregate_status = posterior_record.get("sampler_diagnostics_status")
+
+        if aggregate_status == "completed_passed" and not all_parameters_passed:
+            raise RuntimeError("Posterior cache aggregate sampler status conflicts with per-parameter diagnostics.")
+
+        if aggregate_status == "completed_failed" and not any_parameter_failed:
+            raise RuntimeError("Posterior cache aggregate sampler status conflicts with per-parameter diagnostics.")
+
     raw_multiplier = posterior_record.get(
         "prior_scale_multiplier"
     )
@@ -3934,6 +4270,7 @@ def execute_full_posterior_sampling(workflow: dict, acknowledged_pairs: set[tupl
         "failed_call_count": 0,
         "review_blocked_call_count": 0,
         "reused_cache_count": 0,
+        "imported_cache_count": 0,
         "new_cache_count": 0
     }
 
@@ -4047,8 +4384,10 @@ def execute_full_posterior_sampling(workflow: dict, acknowledged_pairs: set[tupl
             (
                 cached_inference_data,
                 cached_diagnostics,
-                cache_miss_reason
-            ) = read_validated_cache_entry(
+                cache_miss_reason,
+                loaded_cache_identity,
+                imported_cache
+            ) = read_cache_entry_with_registered_import(
                 cache_directory = cache_directory,
                 cache_identity = cache_identity,
                 policy = policy
@@ -4107,14 +4446,20 @@ def execute_full_posterior_sampling(workflow: dict, acknowledged_pairs: set[tupl
                     RuntimeError,
                     TypeError,
                     ValueError
-                ):
+                ) as validation_error:
                     del cached_inference_data
+
+                    if imported_cache:
+                        raise RuntimeError(
+                            "Registered immutable source cache entry failed compatibility validation : "
+                            f"{loaded_cache_identity['cache_identity_sha256']} : {validation_error}"
+                        ) from validation_error
 
                     quarantine_corrupt_cache_entry(
                         cache_directory = (
                             cache_directory
                         ),
-                        cache_identity = cache_identity,
+                        cache_identity = loaded_cache_identity,
                         reason_code = (
                             "CACHE_METADATA_SCHEMA_INVALID"
                         )
@@ -4140,7 +4485,7 @@ def execute_full_posterior_sampling(workflow: dict, acknowledged_pairs: set[tupl
                                 prior_scale_multiplier
                             ),
                             "cache_identity": (
-                                cache_identity
+                            loaded_cache_identity
                             )
                         }
                     )
@@ -4150,7 +4495,7 @@ def execute_full_posterior_sampling(workflow: dict, acknowledged_pairs: set[tupl
                     ] += 1
 
                     execution_accounting[
-                        "reused_cache_count"
+                        "imported_cache_count" if imported_cache else "reused_cache_count"
                     ] += 1
 
                     del cached_inference_data
@@ -4164,7 +4509,7 @@ def execute_full_posterior_sampling(workflow: dict, acknowledged_pairs: set[tupl
             ):
                 quarantine_corrupt_cache_entry(
                     cache_directory = cache_directory,
-                    cache_identity = cache_identity,
+                    cache_identity = loaded_cache_identity,
                     reason_code = cache_miss_reason
                 )
 
@@ -4472,147 +4817,700 @@ def summarize_posterior_candidate(inference_data, candidate: dict, policy: dict,
     return records
 
 
-# Building one observed-cell posterior-predictive diagnostic row
-def build_posterior_predictive_diagnostic(candidate: dict, prior_scale_multiplier: float,
-                                          population_name: str, condition_identity: str | None,
-                                          observations: list[dict], predictive_values: np.ndarray
-) -> dict:
-    outcome = candidate["collapsed_candidate"]["outcome"]
-    cohort = candidate["collapsed_candidate"]["cohort"]
-    observed_values = np.asarray(
-        [observation["outcome_value"] for observation in observations],
-        dtype = float
+# Calculating equal-cell posterior-predictive statistics
+def calculate_equal_cell_statistics(cell_values: np.ndarray) -> dict[str, np.ndarray]:
+    if (
+        cell_values.ndim != 2
+        or cell_values.shape[1] == 0
+    ):
+        return {}
+
+    medians = np.quantile(
+        cell_values,
+        0.5,
+        axis = 1,
+        method = "linear"
     )
-    finite_mask = np.isfinite(predictive_values)
-    positive_finite_mask = finite_mask & (predictive_values > 0)
-    finite_values = predictive_values[finite_mask]
-
-    if not observations:
-        status = "unavailable"
-        reason_code = "POSTERIOR_PREDICTIVE_FAILED"
-        observed_median = None
-        predictive_median = None
-        predictive_median_absolute_deviation = None
-        predictive_quantiles = None
-
-    elif finite_values.size != predictive_values.size or np.any(finite_values <= 0):
-        status = "completed_failed"
-        reason_code = "POSTERIOR_PREDICTIVE_FAILED"
-        observed_median = float(np.quantile(observed_values, 0.5, method = "linear"))
-        predictive_median = None
-        predictive_median_absolute_deviation = None
-        predictive_quantiles = None
-
-    else:
-        observed_median = float(np.quantile(observed_values, 0.5, method = "linear"))
-        predictive_median = float(np.quantile(finite_values, 0.5, method = "linear"))
-        predictive_median_absolute_deviation = float(
-            np.quantile(
-                np.abs(finite_values - predictive_median),
-                0.5,
-                method = "linear"
-            )
-        )
-        predictive_quantiles = {
-            format(probability, ".2f"): float(
-                np.quantile(
-                    finite_values,
-                    probability,
-                    method = "linear"
-                )
-            )
-            for probability in (0.05, 0.25, 0.5, 0.75, 0.95)
-        }
-        status = "completed"
-        reason_code = "POSTERIOR_PREDICTIVE_COMPLETED"
 
     return {
-        "candidate_identity": candidate["candidate_identity"],
-        "outcome": outcome,
-        "cohort": cohort,
-        "prior_scale_multiplier": prior_scale_multiplier,
-        "diagnostic_population": population_name,
-        "condition_protocol_identity": condition_identity,
-        "observation_count": len(observations),
-        "cell_count": len({observation["cell_identity"] for observation in observations}),
-        "predictive_draw_count": int(predictive_values.shape[0]) if predictive_values.ndim >= 1 else 0,
-        "predictive_value_count": int(predictive_values.size),
-        "predictive_nonfinite_count": int((~finite_mask).sum()),
-        "predictive_positive_finite_fraction": (
-            float(positive_finite_mask.mean())
-            if predictive_values.size
-            else None
+        "equal_cell_weighted_median": medians,
+        "equal_cell_weighted_median_absolute_deviation": np.quantile(
+            np.abs(
+                cell_values
+                - medians[:, None]
+            ),
+            0.5,
+            axis = 1,
+            method = "linear"
         ),
-        "observed_median": observed_median,
-        "predictive_median": predictive_median,
-        "predictive_median_absolute_deviation": predictive_median_absolute_deviation,
-        "predictive_quantiles": predictive_quantiles,
-        "diagnostic_status": status,
-        "diagnostic_reason_code": reason_code
+        "equal_cell_weighted_minimum": np.min(
+            cell_values,
+            axis = 1
+        ),
+        "equal_cell_weighted_maximum": np.max(
+            cell_values,
+            axis = 1
+        ),
+        **{
+            f"equal_cell_weighted_quantile_{probability:.2f}": np.quantile(
+                cell_values,
+                probability,
+                axis = 1,
+                method = "linear"
+            )
+            for probability in (
+                0.05,
+                0.25,
+                0.50,
+                0.75,
+                0.95
+            )
+        }
     }
 
 
-# Summarizing conditional replications of the fitted cells
-def summarize_observed_cell_posterior_predictive(inference_data, candidate: dict,
-                                                 prior_scale_multiplier: float
-) -> list[dict]:
-    variable_name = "posterior_predictive_outcome"
-    predictive = np.asarray(
-        inference_data.posterior_predictive[variable_name].values,
-        dtype = float
-    ).reshape(
-        -1,
-        len(candidate["included_observations"])
-    )
-    observations = prepare_pymc_candidate_data(candidate)["observations"]
-    records = []
-
-    populations = [
-        (
-            "all_assembled_observations",
-            None,
-            list(range(len(observations)))
-        ),
-        (
-            "inside_evaluation_interval",
-            None,
-            [index for index, observation in enumerate(observations) if observation["inside_evaluation_interval"]]
-        ),
-        (
-            "outside_evaluation_interval",
-            None,
-            [index for index, observation in enumerate(observations) if not observation["inside_evaluation_interval"]]
-        )
+# Building one observed-cell posterior-predictive diagnostic row
+def build_posterior_predictive_diagnostic(candidate: dict, prior_scale_multiplier: float,
+                                          population_name: str, condition_identity: str | None,
+                                          observations: list[dict], predictive_values: np.ndarray,
+                                          horizon_bin_index: int | None = None
+) -> dict:
+    outcome = candidate[
+        "collapsed_candidate"
+    ][
+        "outcome"
     ]
 
-    for condition_identity in sorted(candidate["condition_identities"]):
-        populations.append(
+    cohort = candidate[
+        "collapsed_candidate"
+    ][
+        "cohort"
+    ]
+
+    observations_by_cell = defaultdict(
+        list
+    )
+
+    for observation_index, observation in enumerate(
+        observations
+    ):
+        observations_by_cell[
+            observation["cell_identity"]
+        ].append(
             (
-                "condition",
-                condition_identity,
-                [
-                    index
-                    for index, observation in enumerate(observations)
-                    if observation["condition_protocol_identity"] == condition_identity
+                observation_index,
+                observation
+            )
+        )
+
+    ordered_cells = sorted(
+        observations_by_cell
+    )
+
+    predictive_draw_count = (
+        int(
+            predictive_values.shape[0]
+        )
+        if predictive_values.ndim == 2
+        else 0
+    )
+
+    finite_mask = np.isfinite(
+        predictive_values
+    )
+
+    positive_finite_mask = (
+        finite_mask
+        & (
+            predictive_values
+            > 0
+        )
+    )
+
+    observed_cell_values = np.asarray(
+        [
+            [
+                float(
+                    observation["outcome_value"]
+                )
+                for _, observation
+                in observations_by_cell[
+                    cell_identity
+                ]
+            ]
+            for cell_identity in ordered_cells
+        ],
+        dtype = object
+    )
+
+    observed_cell_medians = np.asarray(
+        [
+            np.quantile(
+                np.asarray(
+                    values,
+                    dtype = float
+                ),
+                0.5,
+                method = "linear"
+            )
+            for values in observed_cell_values
+        ],
+        dtype = float
+    )
+
+    predictive_cell_medians = (
+        np.column_stack(
+            [
+                np.quantile(
+                    predictive_values[
+                        :,
+                        [
+                            observation_index
+                            for observation_index, _
+                            in observations_by_cell[
+                                cell_identity
+                            ]
+                        ]
+                    ],
+                    0.5,
+                    axis = 1,
+                    method = "linear"
+                )
+                for cell_identity in ordered_cells
+            ]
+        )
+        if ordered_cells
+        else np.empty(
+            (
+                predictive_draw_count,
+                0
+            ),
+            dtype = float
+        )
+    )
+
+    observed_statistic_arrays = calculate_equal_cell_statistics(
+        observed_cell_medians[
+            None,
+            :
+        ]
+    )
+
+    predictive_statistic_arrays = calculate_equal_cell_statistics(
+        predictive_cell_medians
+    )
+
+    repeated_cells = [
+        cell_identity
+        for cell_identity in ordered_cells
+        if len(
+            observations_by_cell[
+                cell_identity
+            ]
+        ) >= 2
+    ]
+
+    observed_changes = []
+    predictive_changes = []
+
+    for cell_identity in repeated_cells:
+        ordered_records = sorted(
+            observations_by_cell[
+                cell_identity
+            ],
+            key = lambda item: (
+                float(
+                    item[1]["horizon"]
+                ),
+                item[1]["source_identity"]
+            )
+        )
+
+        first_index, first_observation = (
+            ordered_records[0]
+        )
+
+        last_index, last_observation = (
+            ordered_records[-1]
+        )
+
+        observed_changes.append(
+            float(
+                last_observation[
+                    "outcome_value"
+                ]
+            )
+            - float(
+                first_observation[
+                    "outcome_value"
                 ]
             )
         )
 
-    for population_name, condition_identity, indices in populations:
-        selected_observations = [observations[index] for index in indices]
-        selected_predictive = (
-            predictive[:, indices]
-            if indices
-            else np.empty((predictive.shape[0], 0), dtype = float)
+        predictive_changes.append(
+            predictive_values[
+                :,
+                last_index
+            ]
+            - predictive_values[
+                :,
+                first_index
+            ]
         )
+
+    if repeated_cells:
+        observed_statistic_arrays[
+            "equal_cell_weighted_within_cell_first_to_last_change_median"
+        ] = np.asarray(
+            [
+                np.quantile(
+                    np.asarray(
+                        observed_changes,
+                        dtype = float
+                    ),
+                    0.5,
+                    method = "linear"
+                )
+            ],
+            dtype = float
+        )
+
+        predictive_statistic_arrays[
+            "equal_cell_weighted_within_cell_first_to_last_change_median"
+        ] = np.quantile(
+            np.column_stack(
+                predictive_changes
+            ),
+            0.5,
+            axis = 1,
+            method = "linear"
+        )
+
+        within_cell_change_status = (
+            "completed"
+        )
+
+        within_cell_change_reason_code = (
+            "POSTERIOR_PREDICTIVE_COMPLETED"
+        )
+
+    else:
+        within_cell_change_status = (
+            "unavailable"
+        )
+
+        within_cell_change_reason_code = (
+            "POSTERIOR_PREDICTIVE_WITHIN_CELL_CHANGE_UNAVAILABLE"
+        )
+
+    observed_statistics = {
+        statistic_name: float(
+            statistic_values[0]
+        )
+        for statistic_name, statistic_values
+        in observed_statistic_arrays.items()
+    }
+
+    posterior_predictive_statistic_medians = {
+        statistic_name: float(
+            np.quantile(
+                statistic_values,
+                0.5,
+                method = "linear"
+            )
+        )
+        for statistic_name, statistic_values
+        in predictive_statistic_arrays.items()
+        if (
+            statistic_values.size
+            and np.all(
+                np.isfinite(
+                    statistic_values
+                )
+            )
+        )
+    }
+
+    posterior_predictive_statistic_quantiles = {
+        statistic_name: {
+            f"{probability:.2f}": float(
+                np.quantile(
+                    statistic_values,
+                    probability,
+                    method = "linear"
+                )
+            )
+            for probability in (
+                0.05,
+                0.25,
+                0.50,
+                0.75,
+                0.95
+            )
+        }
+        for statistic_name, statistic_values
+        in predictive_statistic_arrays.items()
+        if (
+            statistic_values.size
+            and np.all(
+                np.isfinite(
+                    statistic_values
+                )
+            )
+        )
+    }
+
+    if not observations:
+        diagnostic_status = (
+            "unavailable"
+        )
+
+        diagnostic_reason_code = (
+            "POSTERIOR_PREDICTIVE_POPULATION_EMPTY"
+        )
+
+    elif (
+        predictive_values.ndim != 2
+        or predictive_values.shape[1]
+        != len(
+            observations
+        )
+        or not np.all(
+            positive_finite_mask
+        )
+    ):
+        diagnostic_status = (
+            "completed_failed"
+        )
+
+        diagnostic_reason_code = (
+            "POSTERIOR_PREDICTIVE_FAILED"
+        )
+
+    else:
+        diagnostic_status = (
+            "completed"
+        )
+
+        diagnostic_reason_code = (
+            "POSTERIOR_PREDICTIVE_COMPLETED"
+        )
+
+    return {
+        "candidate_identity": candidate[
+            "candidate_identity"
+        ],
+        "outcome": outcome,
+        "cohort": cohort,
+        "prior_scale_multiplier": (
+            prior_scale_multiplier
+        ),
+        "diagnostic_population": (
+            population_name
+        ),
+        "condition_protocol_identity": (
+            condition_identity
+        ),
+        "horizon_bin_index": (
+            horizon_bin_index
+        ),
+        "observation_count": len(
+            observations
+        ),
+        "cell_count": len(
+            ordered_cells
+        ),
+        "repeated_cell_count": len(
+            repeated_cells
+        ),
+        "predictive_draw_count": (
+            predictive_draw_count
+        ),
+        "predictive_value_count": int(
+            predictive_values.size
+        ),
+        "predictive_nonfinite_count": int(
+            (
+                ~finite_mask
+            ).sum()
+        ),
+        "predictive_positive_finite_fraction": (
+            float(
+                positive_finite_mask.mean()
+            )
+            if predictive_values.size
+            else None
+        ),
+        "observed_statistics": (
+            observed_statistics
+        ),
+        "posterior_predictive_statistic_medians": (
+            posterior_predictive_statistic_medians
+        ),
+        "posterior_predictive_statistic_quantiles": (
+            posterior_predictive_statistic_quantiles
+        ),
+        "within_cell_change_status": (
+            within_cell_change_status
+        ),
+        "within_cell_change_reason_code": (
+            within_cell_change_reason_code
+        ),
+        "diagnostic_status": (
+            diagnostic_status
+        ),
+        "diagnostic_reason_code": (
+            diagnostic_reason_code
+        )
+    }
+
+
+# Summarizing conditional replications of fitted cells
+def summarize_observed_cell_posterior_predictive(inference_data, candidate: dict,
+                                                 prior_scale_multiplier: float, policy: dict
+) -> list[dict]:
+    predictive = np.asarray(
+        inference_data.posterior_predictive[
+            "posterior_predictive_outcome"
+        ].values,
+        dtype = float
+    ).reshape(
+        -1,
+        len(
+            candidate[
+                "included_observations"
+            ]
+        )
+    )
+
+    observations = prepare_pymc_candidate_data(
+        candidate
+    )[
+        "observations"
+    ]
+
+    all_indices = list(
+        range(
+            len(
+                observations
+            )
+        )
+    )
+
+    def repeated_indices(indices: list[int]) -> list[int]:
+        counts = Counter(
+            observations[
+                index
+            ][
+                "cell_identity"
+            ]
+            for index in indices
+        )
+
+        return [
+            index
+            for index in indices
+            if counts[
+                observations[
+                    index
+                ][
+                    "cell_identity"
+                ]
+            ] >= 2
+        ]
+
+    populations = [
+        (
+            "all_observations",
+            None,
+            None,
+            all_indices
+        ),
+        (
+            "all_repeated_cell_observations",
+            None,
+            None,
+            repeated_indices(
+                all_indices
+            )
+        )
+    ]
+
+    support_minimum = float(
+        candidate[
+            "collapsed_candidate"
+        ][
+            "support_interval_minimum"
+        ]
+    )
+
+    support_maximum = float(
+        candidate[
+            "collapsed_candidate"
+        ][
+            "support_interval_maximum"
+        ]
+    )
+
+    bin_count = int(
+        policy[
+            "predictive_assessment"
+        ][
+            "horizon_bin_count"
+        ]
+    )
+
+    boundaries = np.linspace(
+        support_minimum,
+        support_maximum,
+        bin_count + 1
+    )
+
+    for condition_identity in sorted(
+        candidate[
+            "condition_identities"
+        ]
+    ):
+        condition_indices = [
+            index
+            for index, observation
+            in enumerate(
+                observations
+            )
+            if observation[
+                "condition_protocol_identity"
+            ] == condition_identity
+        ]
+
+        populations.extend(
+            [
+                (
+                    "condition_all_observations",
+                    condition_identity,
+                    None,
+                    condition_indices
+                ),
+                (
+                    "condition_repeated_cell_observations",
+                    condition_identity,
+                    None,
+                    repeated_indices(
+                        condition_indices
+                    )
+                )
+            ]
+        )
+
+        interval_indices = [
+            index
+            for index in condition_indices
+            if observations[
+                index
+            ][
+                "inside_evaluation_interval"
+            ]
+        ]
+
+        for bin_index in range(
+            bin_count
+        ):
+            if bin_index == (
+                bin_count
+                - 1
+            ):
+                indices = [
+                    index
+                    for index in interval_indices
+                    if (
+                        boundaries[
+                            bin_index
+                        ]
+                        <= float(
+                            observations[
+                                index
+                            ][
+                                "horizon"
+                            ]
+                        )
+                        <= boundaries[
+                            bin_index + 1
+                        ]
+                    )
+                ]
+
+            else:
+                indices = [
+                    index
+                    for index in interval_indices
+                    if (
+                        boundaries[
+                            bin_index
+                        ]
+                        <= float(
+                            observations[
+                                index
+                            ][
+                                "horizon"
+                            ]
+                        )
+                        < boundaries[
+                            bin_index + 1
+                        ]
+                    )
+                ]
+
+            populations.append(
+                (
+                    "condition_horizon_bin",
+                    condition_identity,
+                    bin_index,
+                    indices
+                )
+            )
+
+    records = []
+
+    for (
+        population_name,
+        condition_identity,
+        horizon_bin_index,
+        indices
+    ) in populations:
         records.append(
             build_posterior_predictive_diagnostic(
                 candidate = candidate,
-                prior_scale_multiplier = prior_scale_multiplier,
-                population_name = population_name,
-                condition_identity = condition_identity,
-                observations = selected_observations,
-                predictive_values = selected_predictive
+                prior_scale_multiplier = (
+                    prior_scale_multiplier
+                ),
+                population_name = (
+                    population_name
+                ),
+                condition_identity = (
+                    condition_identity
+                ),
+                observations = [
+                    observations[
+                        index
+                    ]
+                    for index in indices
+                ],
+                predictive_values = (
+                    predictive[
+                        :,
+                        indices
+                    ]
+                    if indices
+                    else np.empty(
+                        (
+                            predictive.shape[0],
+                            0
+                        ),
+                        dtype = float
+                    )
+                ),
+                horizon_bin_index = (
+                    horizon_bin_index
+                )
             )
         )
 
@@ -5048,8 +5946,8 @@ def summarize_grouped_validation(candidate: dict, prediction_records: list[dict]
             {
                 "candidate_identity": candidate["candidate_identity"],
                 "condition_protocol_identity": condition_identity,
-                "test_cell_count": len(observed_by_cell),
-                "test_observation_count": len(condition_records),
+                "independent_cell_count": len(observed_by_cell),
+                "observation_count": len(condition_records),
                 "equal_cell_weighted_median_observed": median_across_cell_medians(observed_by_cell),
                 "equal_cell_weighted_median_predicted": median_across_cell_medians(predicted_by_cell),
                 "equal_cell_weighted_median_error": median_across_cell_medians(error_by_cell),
@@ -5100,6 +5998,7 @@ def execute_grouped_validation(workflow: dict, cache_directory: Path,
         "completed_call_count": 0,
         "failed_call_count": 0,
         "reused_cache_count": 0,
+        "imported_cache_count": 0,
         "new_cache_count": 0
     }
 
@@ -5168,8 +6067,10 @@ def execute_grouped_validation(workflow: dict, cache_directory: Path,
             (
                 inference_data,
                 cached_diagnostics,
-                cache_miss_reason
-            ) = read_validated_cache_entry(
+                cache_miss_reason,
+                loaded_cache_identity,
+                imported_cache
+            ) = read_cache_entry_with_registered_import(
                 cache_directory = cache_directory,
                 cache_identity = cache_identity,
                 policy = policy
@@ -5194,23 +6095,39 @@ def execute_grouped_validation(workflow: dict, cache_directory: Path,
                         outcome = candidate["collapsed_candidate"]["outcome"],
                         prior_scale_multiplier = prior_scale_multiplier
                     )
-                    validate_finite_posterior_draws(inference_data, policy)
-                except (RuntimeError, TypeError, ValueError):
+
+                    validate_posterior_inference_data(
+                        inference_data = inference_data,
+                        candidate = candidate,
+                        policy = policy,
+                        observations = training_observations,
+                        require_posterior_predictive = False
+                    )
+                except (RuntimeError, TypeError, ValueError) as validation_error:
                     del inference_data
                     inference_data = None
+
+                    if imported_cache:
+                        raise RuntimeError(
+                            "Registered immutable source cache entry failed compatibility validation : "
+                            f"{loaded_cache_identity['cache_identity_sha256']} : {validation_error}"
+                        ) from validation_error
+
                     quarantine_corrupt_cache_entry(
                         cache_directory = cache_directory,
-                        cache_identity = cache_identity,
+                        cache_identity = loaded_cache_identity,
                         reason_code = "CACHE_METADATA_SCHEMA_INVALID"
                     )
                 else:
-                    accounting["reused_cache_count"] += 1
+                    accounting[
+                        "imported_cache_count" if imported_cache else "reused_cache_count"
+                    ] += 1
 
             if inference_data is None:
                 if cache_miss_reason not in {None, "CACHE_METADATA_MISSING"}:
                     quarantine_corrupt_cache_entry(
                         cache_directory = cache_directory,
-                        cache_identity = cache_identity,
+                        cache_identity = loaded_cache_identity,
                         reason_code = cache_miss_reason
                     )
 
@@ -5360,7 +6277,8 @@ def summarize_full_posterior_caches(workflow: dict, cache_directory: Path,
             summarize_observed_cell_posterior_predictive(
                 inference_data = inference_data,
                 candidate = candidate,
-                prior_scale_multiplier = cache_record["prior_scale_multiplier"]
+                prior_scale_multiplier = cache_record["prior_scale_multiplier"],
+                policy = policy
             )
         )
         del inference_data
@@ -5384,8 +6302,7 @@ def summarize_full_posterior_caches(workflow: dict, cache_directory: Path,
 
 # Qualifying reference posteriors under every registered diagnostic requirement
 def qualify_reference_posteriors(workflow: dict, posterior_records: list[dict],
-                                 predictive_diagnostics: list[dict],
-                                 validation_metrics: list[dict],
+                                 predictive_diagnostics: list[dict], validation_metrics: list[dict],
                                  calibration_records: list[dict]
 ) -> dict[str, dict]:
     policy = workflow["validated_inputs"]["policy"]
@@ -5407,6 +6324,170 @@ def qualify_reference_posteriors(workflow: dict, posterior_records: list[dict],
     for record in calibration_records:
         calibration_by_candidate[record["candidate_identity"]].append(record)
 
+    registered_statistics = set(
+        policy["predictive_assessment"]["posterior_predictive_statistics"]
+    )
+
+    within_cell_statistic = (
+        "equal_cell_weighted_within_cell_first_to_last_change_median"
+    )
+
+    base_statistics = (
+        registered_statistics
+        - {
+            within_cell_statistic
+        }
+    )
+
+    quantile_keys = {
+        "0.05",
+        "0.25",
+        "0.50",
+        "0.75",
+        "0.95"
+    }
+
+    def finite_numeric_mapping(value: dict) -> bool:
+        return all(
+            isinstance(
+                item,
+                (
+                    int,
+                    float
+                )
+            )
+            and not isinstance(
+                item,
+                bool
+            )
+            and math.isfinite(
+                float(
+                    item
+                )
+            )
+            for item in value.values()
+        )
+
+    def diagnostic_record_is_acceptable(record: dict) -> bool:
+        observation_count = int(
+            record[
+                "observation_count"
+            ]
+        )
+
+        if observation_count == 0:
+            return (
+                record[
+                    "diagnostic_status"
+                ]
+                == "unavailable"
+                and record[
+                    "diagnostic_reason_code"
+                ]
+                == "POSTERIOR_PREDICTIVE_POPULATION_EMPTY"
+            )
+
+        if (
+            record[
+                "diagnostic_status"
+            ]
+            != "completed"
+            or int(
+                record[
+                    "predictive_nonfinite_count"
+                ]
+            )
+            != 0
+            or float(
+                record[
+                    "predictive_positive_finite_fraction"
+                ]
+            )
+            != 1.0
+        ):
+            return False
+
+        expected_statistics = set(
+            base_statistics
+        )
+
+        if int(
+            record[
+                "repeated_cell_count"
+            ]
+        ) > 0:
+            expected_statistics.add(
+                within_cell_statistic
+            )
+
+            if (
+                record[
+                    "within_cell_change_status"
+                ]
+                != "completed"
+            ):
+                return False
+
+        elif (
+            record[
+                "within_cell_change_status"
+            ]
+            != "unavailable"
+            or record[
+                "within_cell_change_reason_code"
+            ]
+            != "POSTERIOR_PREDICTIVE_WITHIN_CELL_CHANGE_UNAVAILABLE"
+        ):
+            return False
+
+        observed = record[
+            "observed_statistics"
+        ]
+
+        predictive_medians = record[
+            "posterior_predictive_statistic_medians"
+        ]
+
+        predictive_quantiles = record[
+            "posterior_predictive_statistic_quantiles"
+        ]
+
+        if not (
+            set(
+                observed
+            )
+            == expected_statistics
+            == set(
+                predictive_medians
+            )
+            == set(
+                predictive_quantiles
+            )
+        ):
+            return False
+
+        if not (
+            finite_numeric_mapping(
+                observed
+            )
+            and finite_numeric_mapping(
+                predictive_medians
+            )
+        ):
+            return False
+
+        return all(
+            set(
+                statistic_quantiles
+            )
+            == quantile_keys
+            and finite_numeric_mapping(
+                statistic_quantiles
+            )
+            for statistic_quantiles
+            in predictive_quantiles.values()
+        )
+
     qualification = {}
 
     for candidate_identity, registry_record in registry.items():
@@ -5421,21 +6502,105 @@ def qualify_reference_posteriors(workflow: dict, posterior_records: list[dict],
         metric_record = metric_by_candidate.get(candidate_identity)
         predictive_records = predictive_by_candidate.get(candidate_identity, [])
         candidate_calibration = calibration_by_candidate.get(candidate_identity, [])
+        condition_identities = json.loads(
+            registry_record["sorted_condition_protocol_identities"]
+        ) if isinstance(
+            registry_record["sorted_condition_protocol_identities"],
+            str
+        ) else registry_record["sorted_condition_protocol_identities"]
 
-        available = (
-            posterior_record is not None
-            and posterior_record["fit_status"] == "completed"
-            and posterior_record["sampler_diagnostics_status"] == "completed_passed"
-            and predictive_records
-            and all(record["diagnostic_status"] == "completed" for record in predictive_records)
-            and metric_record is not None
-            and metric_record["validation_status"] == "completed"
-            and metric_record["equal_cell_weighted_predictive_r_squared"] is not None
-            and float(metric_record["equal_cell_weighted_predictive_r_squared"])
-            >= policy["predictive_assessment"]["analytical_qualification"]["minimum_predictive_r_squared"]
-            and len(candidate_calibration) == int(registry_record["condition_count"])
-            and all(record["calibration_status"] == "completed" for record in candidate_calibration)
+        expected_predictive_inventory = {
+            (
+                "all_observations",
+                None,
+                None
+            ),
+            (
+                "all_repeated_cell_observations",
+                None,
+                None
+            )
+        }
+
+        for condition_identity in condition_identities:
+            expected_predictive_inventory.update(
+                {
+                    (
+                        "condition_all_observations",
+                        condition_identity,
+                        None
+                    ),
+                    (
+                        "condition_repeated_cell_observations",
+                        condition_identity,
+                        None
+                    )
+                }
+            )
+
+            for horizon_bin_index in range(
+                policy[
+                    "predictive_assessment"
+                ][
+                    "horizon_bin_count"
+                ]
+            ):
+                expected_predictive_inventory.add(
+                    (
+                        "condition_horizon_bin",
+                        condition_identity,
+                        horizon_bin_index
+                    )
+                )
+
+        observed_predictive_inventory = {
+            (
+                record["diagnostic_population"],
+                record["condition_protocol_identity"],
+                record["horizon_bin_index"]
+            )
+            for record in predictive_records
+        }
+
+        predictive_inventory_complete = (
+            observed_predictive_inventory
+            == expected_predictive_inventory
+            and len(predictive_records) == len(expected_predictive_inventory)
         )
+
+        failed_gates = []
+
+        if posterior_record is None:
+            failed_gates.append("reference_posterior_unavailable")
+        elif posterior_record["fit_status"] != "completed":
+            failed_gates.append("reference_posterior_not_completed")
+        elif posterior_record["sampler_diagnostics_status"] != "completed_passed":
+            failed_gates.append("reference_sampler_diagnostics_failed")
+
+        if not predictive_inventory_complete:
+            failed_gates.append("posterior_predictive_inventory_incomplete")
+        elif not all(
+            diagnostic_record_is_acceptable(record)
+            for record in predictive_records
+        ):
+            failed_gates.append("posterior_predictive_diagnostics_failed")
+
+        if metric_record is None or metric_record["validation_status"] != "completed":
+            failed_gates.append("grouped_validation_not_completed")
+        else:
+            predictive_r_squared = metric_record["equal_cell_weighted_predictive_r_squared"]
+
+            if predictive_r_squared is None:
+                failed_gates.append("predictive_r_squared_unavailable")
+            elif float(predictive_r_squared) < policy["predictive_assessment"]["analytical_qualification"]["minimum_predictive_r_squared"]:
+                failed_gates.append("predictive_benchmark_not_met")
+
+        if len(candidate_calibration) != int(registry_record["condition_count"]):
+            failed_gates.append("condition_calibration_incomplete")
+        elif not all(record["calibration_status"] == "completed" for record in candidate_calibration):
+            failed_gates.append("condition_calibration_diagnostics_failed")
+
+        available = not failed_gates
 
         qualification[candidate_identity] = {
             "status": "available" if available else "diagnostic_only",
@@ -5443,7 +6608,8 @@ def qualify_reference_posteriors(workflow: dict, posterior_records: list[dict],
                 "ANALYTICAL_QUALIFICATION_AVAILABLE"
                 if available
                 else "ANALYTICAL_QUALIFICATION_DIAGNOSTIC_ONLY"
-            )
+            ),
+            "failed_gates": failed_gates
         }
 
     return qualification
@@ -5503,6 +6669,29 @@ def summarize_candidate_trajectories(inference_data, candidate: dict, policy: di
                 predictive = np.exp(predictive_log)
 
             if not np.all(np.isfinite(latent)) or not np.all(np.isfinite(predictive)) or np.any(predictive <= 0):
+                for trajectory_target in (
+                    "latent_reference_cell",
+                    "new_cell_predictive"
+                ):
+                    records.append({
+                        "candidate_identity": candidate["candidate_identity"],
+                        "outcome": candidate["collapsed_candidate"]["outcome"],
+                        "cohort": candidate["collapsed_candidate"]["cohort"],
+                        "horizon_axis": candidate["collapsed_candidate"]["horizon_axis"],
+                        "condition_protocol_identity": condition_identity,
+                        "horizon": float(horizon),
+                        "trajectory_target": trajectory_target,
+                        "posterior_mean": None,
+                        "posterior_median": None,
+                        "credible_interval_lower": None,
+                        "credible_interval_upper": None,
+                        "predictive_interval_lower": None,
+                        "predictive_interval_upper": None,
+                        "analytical_status": "unavailable",
+                        "analytical_reason_code": "NONFINITE_TRAJECTORY_DERIVATION",
+                        "estimate_label": policy["trajectory_reporting"]["estimate_label"],
+                        "causal_interpretation": policy["trajectory_reporting"]["causal_label"]
+                    })
                 continue
 
             common = {
@@ -5515,7 +6704,7 @@ def summarize_candidate_trajectories(inference_data, candidate: dict, policy: di
                 "analytical_status": "available",
                 "analytical_reason_code": "TRAJECTORY_REPORTING_COMPLETED",
                 "estimate_label": policy["trajectory_reporting"]["estimate_label"],
-                "causal_interpretation": "false"
+                "causal_interpretation": policy["trajectory_reporting"]["causal_label"]
             }
             records.append({
                 **common,
@@ -5542,30 +6731,63 @@ def summarize_candidate_trajectories(inference_data, candidate: dict, policy: di
 
 
 # Reporting authorized continuous latent-trajectory differences without point-estimand claims
-def summarize_candidate_differences(inference_data, candidate: dict, workflow: dict,
-                                    qualification: dict
+def summarize_candidate_differences(inference_data, candidate: dict,
+                                    workflow: dict, qualification: dict
 ) -> list[dict]:
-    if qualification["status"] != "available":
-        return []
-
     policy = workflow["validated_inputs"]["policy"]
     identification_records = workflow["validated_inputs"]["identification_tables"]["estimand_identification"]
     support_records = workflow["validated_inputs"]["design_tables"]["estimand_support"]
-    data = prepare_pymc_candidate_data(candidate)
-    condition_index = {
-        identity: index
-        for index, identity in enumerate(data["condition_identities"])
-    }
-    condition_intercepts, _, _ = stack_posterior_draws(
-        inference_data.posterior["condition_intercept"]
-    )
-    condition_slopes, _, _ = stack_posterior_draws(
-        inference_data.posterior["condition_horizon_slope"]
-    )
+    data = None
+    condition_index = None
+    condition_intercepts = None
+    condition_slopes = None
+
+    if qualification["status"] == "available":
+        data = prepare_pymc_candidate_data(candidate)
+        condition_index = {
+            identity: index
+            for index, identity in enumerate(data["condition_identities"])
+        }
+        condition_intercepts, _, _ = stack_posterior_draws(
+            inference_data.posterior["condition_intercept"]
+        )
+        condition_slopes, _, _ = stack_posterior_draws(
+            inference_data.posterior["condition_horizon_slope"]
+        )
     probability = policy["trajectory_reporting"]["continuous_pairwise_difference_reporting"]["credible_interval_probability"]
     lower_probability = (1 - probability) / 2
     upper_probability = 1 - lower_probability
     records = []
+
+    def unavailable_record(estimand_identity: str, identification: dict,
+                           reason_code: str) -> dict:
+        return {
+            "candidate_identity": candidate["candidate_identity"],
+            "estimand_decision_identity": estimand_identity,
+            "outcome": candidate["collapsed_candidate"]["outcome"],
+            "cohort": candidate["collapsed_candidate"]["cohort"],
+            "horizon_axis": candidate["collapsed_candidate"]["horizon_axis"],
+            "first_condition_protocol_identity": identification["first_condition_protocol_identity"],
+            "second_condition_protocol_identity": identification["second_condition_protocol_identity"],
+            "horizon": None,
+            "posterior_mean_difference": None,
+            "posterior_median_difference": None,
+            "credible_interval_lower": None,
+            "credible_interval_upper": None,
+            "probability_difference_above_zero": None,
+            "posterior_mean_ratio": None,
+            "posterior_median_ratio": None,
+            "ratio_credible_interval_lower": None,
+            "ratio_credible_interval_upper": None,
+            "probability_ratio_above_one": None,
+            "interpretation_restriction_codes": json.loads(
+                identification["interpretation_restriction_codes"]
+            ),
+            "analytical_status": "unavailable",
+            "analytical_reason_code": reason_code,
+            "estimate_label": policy["trajectory_reporting"]["estimate_label"],
+            "causal_interpretation": policy["trajectory_reporting"]["continuous_pairwise_difference_reporting"]["causal_interpretation"]
+        }
 
     for estimand_identity in candidate["estimand_decision_identities"]:
         matching_identification = [
@@ -5581,7 +6803,24 @@ def summarize_candidate_differences(inference_data, candidate: dict, workflow: d
         first_condition = identification["first_condition_protocol_identity"]
         second_condition = identification["second_condition_protocol_identity"]
 
+        if qualification["status"] != "available":
+            records.append(
+                unavailable_record(
+                    estimand_identity,
+                    identification,
+                    "REFERENCE_POSTERIOR_NOT_ANALYTICALLY_AVAILABLE"
+                )
+            )
+            continue
+
         if first_condition not in condition_index or second_condition not in condition_index:
+            records.append(
+                unavailable_record(
+                    estimand_identity,
+                    identification,
+                    "CONDITIONS_NOT_PRESENT_IN_CANDIDATE"
+                )
+            )
             continue
 
         matching_support = [
@@ -5605,7 +6844,7 @@ def summarize_candidate_differences(inference_data, candidate: dict, workflow: d
             raise RuntimeError(f"Authorized estimand support record is not unique : {estimand_identity}")
 
         permitted_ranges = json.loads(matching_support[0]["permitted_bracketing_ranges"])
-        emitted = False
+        positive_width_range_found = False
 
         for permitted_range in permitted_ranges:
             lower = max(
@@ -5619,6 +6858,8 @@ def summarize_candidate_differences(inference_data, candidate: dict, workflow: d
 
             if upper <= lower:
                 continue
+
+            positive_width_range_found = True
 
             range_candidate = {
                 **candidate,
@@ -5645,8 +6886,23 @@ def summarize_candidate_differences(inference_data, candidate: dict, workflow: d
                     + condition_slopes[:, condition_index[second_condition]] * scaled_horizon
                 )
                 difference = second - first
+                ratio = second / first
 
-                if not np.all(np.isfinite(difference)):
+                if (
+                    not np.all(np.isfinite(difference))
+                    or not np.all(np.isfinite(ratio))
+                    or np.any(ratio <= 0)
+                ):
+                    records.append(
+                        {
+                            **unavailable_record(
+                                estimand_identity,
+                                identification,
+                                "NONFINITE_TRAJECTORY_DERIVATION"
+                            ),
+                            "horizon": float(horizon)
+                        }
+                    )
                     continue
 
                 records.append({
@@ -5658,48 +6914,57 @@ def summarize_candidate_differences(inference_data, candidate: dict, workflow: d
                     "first_condition_protocol_identity": first_condition,
                     "second_condition_protocol_identity": second_condition,
                     "horizon": float(horizon),
+                    "posterior_mean_difference": float(np.mean(difference)),
                     "posterior_median_difference": float(np.quantile(difference, 0.5, method = "linear")),
                     "credible_interval_lower": float(np.quantile(difference, lower_probability, method = "linear")),
                     "credible_interval_upper": float(np.quantile(difference, upper_probability, method = "linear")),
                     "probability_difference_above_zero": float(np.mean(difference > 0)),
+                    "posterior_mean_ratio": float(np.mean(ratio)),
+                    "posterior_median_ratio": float(np.quantile(ratio, 0.5, method = "linear")),
+                    "ratio_credible_interval_lower": float(np.quantile(ratio, lower_probability, method = "linear")),
+                    "ratio_credible_interval_upper": float(np.quantile(ratio, upper_probability, method = "linear")),
+                    "probability_ratio_above_one": float(np.mean(ratio > 1)),
                     "interpretation_restriction_codes": json.loads(identification["interpretation_restriction_codes"]),
                     "analytical_status": "available",
                     "analytical_reason_code": "TRAJECTORY_REPORTING_COMPLETED",
                     "estimate_label": policy["trajectory_reporting"]["estimate_label"],
-                    "causal_interpretation": "false"
+                    "causal_interpretation": policy["trajectory_reporting"]["continuous_pairwise_difference_reporting"]["causal_interpretation"]
                 })
-                emitted = True
 
-        if not emitted:
-            records.append({
-                "candidate_identity": candidate["candidate_identity"],
-                "estimand_decision_identity": estimand_identity,
-                "outcome": candidate["collapsed_candidate"]["outcome"],
-                "cohort": candidate["collapsed_candidate"]["cohort"],
-                "horizon_axis": candidate["collapsed_candidate"]["horizon_axis"],
-                "first_condition_protocol_identity": first_condition,
-                "second_condition_protocol_identity": second_condition,
-                "horizon": None,
-                "posterior_median_difference": None,
-                "credible_interval_lower": None,
-                "credible_interval_upper": None,
-                "probability_difference_above_zero": None,
-                "interpretation_restriction_codes": json.loads(identification["interpretation_restriction_codes"]),
-                "analytical_status": "unavailable",
-                "analytical_reason_code": "NO_POSITIVE_WIDTH_CONTINUOUS_EVALUATION_RANGE",
-                "estimate_label": policy["trajectory_reporting"]["estimate_label"],
-                "causal_interpretation": "false"
-            })
+        if not positive_width_range_found:
+            records.append(
+                unavailable_record(
+                    estimand_identity,
+                    identification,
+                    "NO_POSITIVE_WIDTH_CONTINUOUS_EVALUATION_RANGE"
+                )
+            )
 
     return records
 
 
 # Comparing registered prior-scale posteriors without imposing an unregistered materiality threshold
-def summarize_prior_sensitivity(posterior_summaries: list[dict], policy: dict) -> list[dict]:
+def summarize_prior_sensitivity(workflow: dict, posterior_summaries: list[dict],
+                                posterior_records: list[dict], policy: dict) -> list[dict]:
+    registry_by_candidate = {
+        record["candidate_identity"]: record
+        for record in workflow["candidate_records"]
+    }
+
     reference_multiplier = policy["sampling"]["reference_posterior_multiplier"]
+    diagnostic_status = {
+        (
+            record["candidate_identity"],
+            float(record["prior_scale_multiplier"])
+        ): record.get("sampler_diagnostics_status")
+        for record in posterior_records
+    }
     indexed = {}
 
     for record in posterior_summaries:
+        if registry_by_candidate[record["candidate_identity"]]["admissibility_status"] != "admissible":
+            continue
+
         key = (
             record["candidate_identity"],
             record["parameter_identity"],
@@ -5713,12 +6978,8 @@ def summarize_prior_sensitivity(posterior_summaries: list[dict], policy: dict) -
 
     for key in sorted(indexed):
         multiplier_records = indexed[key]
+        any_record = next(iter(multiplier_records.values()))
         reference = multiplier_records.get(float(reference_multiplier))
-
-        if reference is None or reference["summary_status"] != "completed":
-            continue
-
-        reference_median = float(reference["posterior_median"])
 
         for sensitivity_multiplier in policy["priors"]["prior_sensitivity_scale_multipliers"]:
             if float(sensitivity_multiplier) == float(reference_multiplier):
@@ -5726,8 +6987,43 @@ def summarize_prior_sensitivity(posterior_summaries: list[dict], policy: dict) -
 
             sensitivity = multiplier_records.get(float(sensitivity_multiplier))
 
-            if sensitivity is None or sensitivity["summary_status"] != "completed":
+            reference_passed = (
+                reference is not None
+                and reference["summary_status"] == "completed"
+                and diagnostic_status.get((key[0], float(reference_multiplier))) == "completed_passed"
+            )
+            sensitivity_passed = (
+                sensitivity is not None
+                and sensitivity["summary_status"] == "completed"
+                and diagnostic_status.get((key[0], float(sensitivity_multiplier))) == "completed_passed"
+            )
+
+            if not reference_passed or not sensitivity_passed:
+                records.append({
+                    "candidate_identity": key[0],
+                    "outcome": any_record["outcome"],
+                    "cohort": any_record["cohort"],
+                    "parameter_or_trajectory_identity": (
+                        key[1]
+                        + (f":{key[2]}" if key[2] else "")
+                    ),
+                    "reference_prior_scale_multiplier": reference_multiplier,
+                    "sensitivity_prior_scale_multiplier": sensitivity_multiplier,
+                    "reference_posterior_median": None,
+                    "sensitivity_posterior_median": None,
+                    "absolute_median_difference": None,
+                    "relative_median_difference": None,
+                    "sensitivity_comparison_status": "unavailable",
+                    "sensitivity_reason_code": (
+                        "REFERENCE_POSTERIOR_DIAGNOSTICS_FAILED"
+                        if not reference_passed
+                        else "SENSITIVITY_POSTERIOR_DIAGNOSTICS_FAILED"
+                    ),
+                    "estimate_label": "bayesian_associational_sensitivity"
+                })
                 continue
+
+            reference_median = float(reference["posterior_median"])
 
             sensitivity_median = float(sensitivity["posterior_median"])
             absolute_difference = abs(sensitivity_median - reference_median)
@@ -5754,6 +7050,199 @@ def summarize_prior_sensitivity(posterior_summaries: list[dict], policy: dict) -
                 "sensitivity_reason_code": None,
                 "estimate_label": "bayesian_associational_sensitivity"
             })
+
+    return records
+
+
+# Comparing latent trajectory medians across registered prior scales
+def summarize_trajectory_prior_sensitivity(workflow: dict, cache_directory: Path,
+                                           posterior_cache_records: list[dict],
+                                           posterior_records: list[dict]) -> list[dict]:
+    policy = workflow["validated_inputs"]["policy"]
+    reference_multiplier = float(policy["sampling"]["reference_posterior_multiplier"])
+    indexed_candidates = component_candidates_by_identity(workflow)
+
+    registry_by_candidate = {
+        record["candidate_identity"]: record
+        for record in workflow["candidate_records"]
+    }
+
+    cache_by_candidate_multiplier = {
+        (
+            record["candidate_identity"],
+            float(record["prior_scale_multiplier"])
+        ): record
+        for record in posterior_cache_records
+    }
+    diagnostics_by_candidate_multiplier = {
+        (
+            record["candidate_identity"],
+            float(record["prior_scale_multiplier"])
+        ): record.get("sampler_diagnostics_status")
+        for record in posterior_records
+    }
+    records = []
+
+    for candidate_identity in sorted(indexed_candidates):
+        if registry_by_candidate[candidate_identity]["admissibility_status"] != "admissible":
+            continue
+
+        candidate = indexed_candidates[candidate_identity]
+        data = prepare_pymc_candidate_data(candidate)
+        grid = build_trajectory_grid(candidate, policy)
+        reference_record = cache_by_candidate_multiplier.get(
+            (candidate_identity, reference_multiplier)
+        )
+        reference_passed = (
+            reference_record is not None
+            and diagnostics_by_candidate_multiplier.get(
+                (candidate_identity, reference_multiplier)
+            ) == "completed_passed"
+        )
+        reference_inference = None
+        reference_intercepts = None
+        reference_slopes = None
+
+        if reference_passed:
+            reference_inference, _ = load_completed_cached_inference(
+                cache_directory,
+                reference_record["cache_identity"],
+                policy
+            )
+            reference_intercepts, _, _ = stack_posterior_draws(
+                reference_inference.posterior["condition_intercept"]
+            )
+            reference_slopes, _, _ = stack_posterior_draws(
+                reference_inference.posterior["condition_horizon_slope"]
+            )
+
+        for sensitivity_multiplier in policy["priors"]["prior_sensitivity_scale_multipliers"]:
+            sensitivity_multiplier = float(sensitivity_multiplier)
+
+            if sensitivity_multiplier == reference_multiplier:
+                continue
+
+            sensitivity_record = cache_by_candidate_multiplier.get(
+                (candidate_identity, sensitivity_multiplier)
+            )
+            sensitivity_passed = (
+                sensitivity_record is not None
+                and diagnostics_by_candidate_multiplier.get(
+                    (candidate_identity, sensitivity_multiplier)
+                ) == "completed_passed"
+            )
+            sensitivity_inference = None
+            sensitivity_intercepts = None
+            sensitivity_slopes = None
+
+            if sensitivity_passed:
+                sensitivity_inference, _ = load_completed_cached_inference(
+                    cache_directory,
+                    sensitivity_record["cache_identity"],
+                    policy
+                )
+                sensitivity_intercepts, _, _ = stack_posterior_draws(
+                    sensitivity_inference.posterior["condition_intercept"]
+                )
+                sensitivity_slopes, _, _ = stack_posterior_draws(
+                    sensitivity_inference.posterior["condition_horizon_slope"]
+                )
+
+            for condition_index, condition_identity in enumerate(data["condition_identities"]):
+                for horizon in grid:
+                    trajectory_identity = (
+                        "latent_trajectory:"
+                        f"{condition_identity}:"
+                        f"{format(float(horizon), '.17g')}"
+                    )
+
+                    if not reference_passed or not sensitivity_passed:
+                        records.append({
+                            "candidate_identity": candidate_identity,
+                            "outcome": candidate["collapsed_candidate"]["outcome"],
+                            "cohort": candidate["collapsed_candidate"]["cohort"],
+                            "parameter_or_trajectory_identity": trajectory_identity,
+                            "reference_prior_scale_multiplier": reference_multiplier,
+                            "sensitivity_prior_scale_multiplier": sensitivity_multiplier,
+                            "reference_posterior_median": None,
+                            "sensitivity_posterior_median": None,
+                            "absolute_median_difference": None,
+                            "relative_median_difference": None,
+                            "sensitivity_comparison_status": "unavailable",
+                            "sensitivity_reason_code": (
+                                "REFERENCE_POSTERIOR_DIAGNOSTICS_FAILED"
+                                if not reference_passed
+                                else "SENSITIVITY_POSTERIOR_DIAGNOSTICS_FAILED"
+                            ),
+                            "estimate_label": "bayesian_associational_sensitivity"
+                        })
+                        continue
+
+                    scaled_horizon = (
+                        float(horizon) - data["training_horizon_midpoint"]
+                    ) / data["training_horizon_width"]
+                    reference_values = np.exp(
+                        reference_intercepts[:, condition_index]
+                        + reference_slopes[:, condition_index] * scaled_horizon
+                    )
+                    sensitivity_values = np.exp(
+                        sensitivity_intercepts[:, condition_index]
+                        + sensitivity_slopes[:, condition_index] * scaled_horizon
+                    )
+
+                    if (
+                        not np.all(np.isfinite(reference_values))
+                        or not np.all(np.isfinite(sensitivity_values))
+                    ):
+                        records.append({
+                            "candidate_identity": candidate_identity,
+                            "outcome": candidate["collapsed_candidate"]["outcome"],
+                            "cohort": candidate["collapsed_candidate"]["cohort"],
+                            "parameter_or_trajectory_identity": trajectory_identity,
+                            "reference_prior_scale_multiplier": reference_multiplier,
+                            "sensitivity_prior_scale_multiplier": sensitivity_multiplier,
+                            "reference_posterior_median": None,
+                            "sensitivity_posterior_median": None,
+                            "absolute_median_difference": None,
+                            "relative_median_difference": None,
+                            "sensitivity_comparison_status": "unavailable",
+                            "sensitivity_reason_code": "NONFINITE_TRAJECTORY_DERIVATION",
+                            "estimate_label": "bayesian_associational_sensitivity"
+                        })
+                        continue
+
+                    reference_median = float(
+                        np.quantile(reference_values, 0.5, method = "linear")
+                    )
+                    sensitivity_median = float(
+                        np.quantile(sensitivity_values, 0.5, method = "linear")
+                    )
+                    absolute_difference = abs(sensitivity_median - reference_median)
+                    records.append({
+                        "candidate_identity": candidate_identity,
+                        "outcome": candidate["collapsed_candidate"]["outcome"],
+                        "cohort": candidate["collapsed_candidate"]["cohort"],
+                        "parameter_or_trajectory_identity": trajectory_identity,
+                        "reference_prior_scale_multiplier": reference_multiplier,
+                        "sensitivity_prior_scale_multiplier": sensitivity_multiplier,
+                        "reference_posterior_median": reference_median,
+                        "sensitivity_posterior_median": sensitivity_median,
+                        "absolute_median_difference": absolute_difference,
+                        "relative_median_difference": (
+                            absolute_difference / abs(reference_median)
+                            if reference_median != 0
+                            else None
+                        ),
+                        "sensitivity_comparison_status": "completed_without_binary_materiality_classification",
+                        "sensitivity_reason_code": None,
+                        "estimate_label": "bayesian_associational_sensitivity"
+                    })
+
+            if sensitivity_inference is not None:
+                del sensitivity_inference
+
+        if reference_inference is not None:
+            del reference_inference
 
     return records
 
@@ -5804,16 +7293,190 @@ def load_prior_predictive_handoff(output_directory: Path, workflow: dict) -> tup
     return diagnostics, review_template, acknowledged_pairs
 
 
-# Updating candidate execution status after reference-posterior qualification
-def build_final_candidate_records(workflow: dict, qualification: dict[str, dict]) -> list[dict]:
+# Recording execution and analytical status without conflating the two contracts
+def build_final_candidate_records(workflow: dict, qualification: dict[str, dict],
+                                  posterior_records: list[dict]) -> list[dict]:
+    posterior_by_candidate = defaultdict(list)
+
+    for posterior_record in posterior_records:
+        posterior_by_candidate[
+            posterior_record["candidate_identity"]
+        ].append(
+            posterior_record
+        )
+
+    policy = workflow[
+        "validated_inputs"
+    ][
+        "policy"
+    ]
+
+    reference_multiplier = float(
+        policy[
+            "sampling"
+        ][
+            "reference_posterior_multiplier"
+        ]
+    )
+
+    expected_prior_scale_multipliers = {
+        float(
+            prior_scale_multiplier
+        )
+        for prior_scale_multiplier in policy[
+            "sampling"
+        ][
+            "full_data_posterior_scale_multipliers"
+        ]
+    }
+
+    expected_multiplier_keys = sorted(
+        format(
+            multiplier,
+            ".1f"
+        )
+        for multiplier in expected_prior_scale_multipliers
+    )
+
     records = []
 
     for source_record in workflow["candidate_records"]:
         record = dict(source_record)
-        candidate_qualification = qualification.get(record["candidate_identity"])
+        candidate_identity = record["candidate_identity"]
+        candidate_qualification = qualification.get(candidate_identity)
+        candidate_posteriors = posterior_by_candidate.get(candidate_identity, [])
 
         if candidate_qualification is not None:
-            record["candidate_execution_status"] = candidate_qualification["status"]
+            record["posterior_analytical_status"] = candidate_qualification["status"]
+            record["posterior_analytical_reason_code"] = candidate_qualification["reason_code"]
+            record["posterior_qualification_failed_gates"] = list(
+                candidate_qualification.get("failed_gates", [])
+            )
+        else:
+            record["posterior_qualification_failed_gates"] = []
+
+        if record["admissibility_status"] == "admissible":
+            observed_prior_scale_multipliers = [
+                float(
+                    posterior_record[
+                        "prior_scale_multiplier"
+                    ]
+                )
+                for posterior_record in candidate_posteriors
+            ]
+
+            posterior_multiplier_inventory_complete = (
+                len(
+                    observed_prior_scale_multipliers
+                )
+                == len(
+                    expected_prior_scale_multipliers
+                )
+                and set(
+                    observed_prior_scale_multipliers
+                )
+                == expected_prior_scale_multipliers
+            )
+
+            posterior_execution_completed = (
+                posterior_multiplier_inventory_complete
+                and all(
+                    posterior_record.get(
+                        "fit_status"
+                    )
+                    == "completed"
+                    for posterior_record in candidate_posteriors
+                )
+            )
+
+            record["candidate_execution_status"] = (
+                "fitted"
+                if posterior_execution_completed
+                else "fit_failed"
+            )
+
+        status_by_multiplier = {}
+        reason_by_multiplier = {}
+
+        for posterior_record in candidate_posteriors:
+            multiplier = float(
+                posterior_record[
+                    "prior_scale_multiplier"
+                ]
+            )
+
+            multiplier_key = format(
+                multiplier,
+                ".1f"
+            )
+
+            fit_completed = (
+                posterior_record.get(
+                    "fit_status"
+                )
+                == "completed"
+            )
+
+            sampler_passed = (
+                posterior_record.get(
+                    "sampler_diagnostics_status"
+                )
+                == "completed_passed"
+            )
+
+            if multiplier == reference_multiplier:
+                status_by_multiplier[
+                    multiplier_key
+                ] = candidate_qualification[
+                    "status"
+                ]
+
+                reason_by_multiplier[
+                    multiplier_key
+                ] = candidate_qualification[
+                    "reason_code"
+                ]
+
+            elif not fit_completed:
+                status_by_multiplier[
+                    multiplier_key
+                ] = "not_available"
+
+                reason_by_multiplier[
+                    multiplier_key
+                ] = "POSTERIOR_SAMPLING_FAILED"
+
+            elif sampler_passed:
+                status_by_multiplier[
+                    multiplier_key
+                ] = "available"
+
+                reason_by_multiplier[
+                    multiplier_key
+                ] = "SAMPLER_DIAGNOSTICS_COMPLETED"
+
+            else:
+                status_by_multiplier[
+                    multiplier_key
+                ] = "diagnostic_only"
+
+                reason_by_multiplier[
+                    multiplier_key
+                ] = "SENSITIVITY_POSTERIOR_DIAGNOSTICS_FAILED"
+
+        if record["admissibility_status"] == "admissible":
+            for multiplier_key in expected_multiplier_keys:
+                if multiplier_key not in status_by_multiplier:
+                    status_by_multiplier[
+                        multiplier_key
+                    ] = "not_available"
+
+                    reason_by_multiplier[
+                        multiplier_key
+                    ] = "POSTERIOR_SAMPLING_FAILED"
+
+        record["posterior_status_by_prior_multiplier"] = status_by_multiplier
+        record["posterior_reason_codes_by_prior_multiplier"] = reason_by_multiplier
 
         records.append(record)
 
@@ -5873,6 +7536,8 @@ def build_fit_outputs(workflow: dict, output_directory: Path, cache_directory: P
 
     reference_multiplier = policy["sampling"]["reference_posterior_multiplier"]
 
+    difference_candidates_processed = set()
+
     for cache_record in posterior_cache_records:
         if float(cache_record["prior_scale_multiplier"]) != float(reference_multiplier):
             continue
@@ -5900,7 +7565,21 @@ def build_fit_outputs(workflow: dict, output_directory: Path, cache_directory: P
                 qualification[candidate_identity]
             )
         )
+        difference_candidates_processed.add(candidate_identity)
         del inference_data
+
+    for candidate_identity in sorted(indexed_candidates):
+        if candidate_identity in difference_candidates_processed:
+            continue
+
+        differences.extend(
+            summarize_candidate_differences(
+                None,
+                indexed_candidates[candidate_identity],
+                workflow,
+                qualification[candidate_identity]
+            )
+        )
 
     trajectories.sort(key = lambda record: (
         record["candidate_identity"],
@@ -5913,7 +7592,25 @@ def build_fit_outputs(workflow: dict, output_directory: Path, cache_directory: P
         record["estimand_decision_identity"],
         float("-inf") if record["horizon"] is None else record["horizon"]
     ))
-    prior_sensitivity = summarize_prior_sensitivity(posterior_summaries, policy)
+    prior_sensitivity = summarize_prior_sensitivity(
+        workflow,
+        posterior_summaries,
+        posterior_records,
+        policy
+    )
+    prior_sensitivity.extend(
+        summarize_trajectory_prior_sensitivity(
+            workflow,
+            cache_directory,
+            posterior_cache_records,
+            posterior_records
+        )
+    )
+    prior_sensitivity.sort(key = lambda record: (
+        record["candidate_identity"],
+        record["parameter_or_trajectory_identity"],
+        record["sensitivity_prior_scale_multiplier"]
+    ))
     sampler_records = sorted(
         full_sampler_records + fold_sampler_records,
         key = lambda record: (
@@ -5923,6 +7620,22 @@ def build_fit_outputs(workflow: dict, output_directory: Path, cache_directory: P
             record["prior_scale_multiplier"],
             record["parameter_identity"]
         )
+    )
+
+    _validate_all_reason_codes(
+        fit_outputs = {
+            "sampler_diagnostics": sampler_records,
+            "posterior_predictive_diagnostics": predictive_diagnostics,
+            "grouped_validation_predictions": predictions,
+            "grouped_validation_metrics": validation_metrics,
+            "grouped_validation_condition_calibration": calibration,
+            "continuous_trajectory_summaries": trajectories,
+            "continuous_trajectory_difference_summaries": differences,
+            "prior_sensitivity_summaries": prior_sensitivity,
+            "posterior_summaries": posterior_summaries,
+            "posterior_records": posterior_records
+        },
+        policy = policy
     )
 
     return {
@@ -5940,7 +7653,11 @@ def build_fit_outputs(workflow: dict, output_directory: Path, cache_directory: P
         "continuous_trajectory_difference_summaries": differences,
         "prior_sensitivity_summaries": prior_sensitivity,
         "qualification": qualification,
-        "candidate_records": build_final_candidate_records(workflow, qualification),
+        "candidate_records": build_final_candidate_records(
+            workflow,
+            qualification,
+            posterior_records
+        ),
         "full_posterior_execution_accounting": full_accounting,
         "grouped_validation_execution_accounting": validation_accounting
     }
@@ -5967,6 +7684,8 @@ def validate_policy(policy: dict) -> None:
         policy["registration"],
         {
             "status", "descriptive_results_available_at_registration",
+            "prior_predictive_results_available_at_registration",
+            "posterior_results_available_at_registration",
             "bayesian_results_available_at_registration",
             "causal_identification_status", "result_informed",
             "result_informed_scope", "analysis_classification"
@@ -5974,14 +7693,21 @@ def validate_policy(policy: dict) -> None:
         "Bayesian policy registration"
     )
 
-    if registration["status"] != "registered_before_bayesian_model_fitting":
-        raise RuntimeError("Bayesian policy is not registered before model fitting.")
+    if registration["status"] != "amended_after_bayesian_results":
+        raise RuntimeError("Bayesian policy does not disclose its amendment timing.")
 
     if registration["causal_identification_status"] != "not_identified_from_observed_design":
         raise RuntimeError("Bayesian policy is inconsistent with causal non-identification.")
 
-    if registration["bayesian_results_available_at_registration"] is not False:
-        raise RuntimeError("Bayesian policy declares prior Bayesian results.")
+    for availability_field in (
+        "prior_predictive_results_available_at_registration",
+        "posterior_results_available_at_registration",
+        "bayesian_results_available_at_registration"
+    ):
+        if registration[availability_field] is not True:
+            raise RuntimeError(
+                f"Bayesian policy does not disclose available results : {availability_field}"
+            )
 
     authorization = _require_exact_fields(
         policy["authorization"],
@@ -6093,22 +7819,6 @@ def validate_policy(policy: dict) -> None:
 
     _require_exact_value(
         candidate_inventory["candidate_construction_sequence"],
-        IMPLEMENTED_CANDIDATE_CONSTRUCTION_SEQUENCE,
-        "candidate_inventory.candidate_construction_sequence"
-    )
-
-    _require_exact_value(
-        candidate_inventory[
-            "candidate_identity_fields"
-        ],
-        IMPLEMENTED_CANDIDATE_IDENTITY_FIELDS,
-        "candidate_inventory.candidate_identity_fields"
-    )
-
-    _require_exact_value(
-        candidate_inventory[
-            "candidate_construction_sequence"
-        ],
         IMPLEMENTED_CANDIDATE_CONSTRUCTION_SEQUENCE,
         "candidate_inventory.candidate_construction_sequence"
     )
@@ -6834,6 +8544,82 @@ def validate_policy(policy: dict) -> None:
         "cache_contract.cache_identity_uses_absolute_paths"
     )
 
+    cache_import_contract = _require_exact_fields(
+        policy["cache_import_contract"],
+        {
+            "enabled",
+            "source_policy_sha256",
+            "source_implementation_sha256",
+            "source_software_environment_sha256",
+            "verified_input_hashes",
+            "permitted_operations",
+            "required_source_entry_count",
+            "required_operation_counts",
+            "required_source_execution_status",
+            "inference_data_required",
+            "source_draws_are_read_only",
+            "source_model_prior_likelihood_sampling_candidate_seed_and_input_contract_unchanged",
+            "source_cache_identity_and_artifact_hashes_revalidated",
+            "posterior_derived_statistics_recomputed_under_current_reporting_contract",
+            "source_sampler_diagnostics_reused_only_after_schema_and_identity_validation",
+            "missing_or_invalid_source_entry_action"
+        },
+        "Bayesian policy cache import contract"
+    )
+
+    _require_true(
+        cache_import_contract["enabled"],
+        "cache_import_contract.enabled"
+    )
+
+    for digest_field in (
+        "source_policy_sha256",
+        "source_implementation_sha256",
+        "source_software_environment_sha256"
+    ):
+        if not SHA256_PATTERN.fullmatch(cache_import_contract[digest_field]):
+            raise RuntimeError(
+                f"Bayesian cache import contract has an invalid digest : {digest_field}"
+            )
+
+    _require_exact_value(
+        cache_import_contract["permitted_operations"],
+        [
+            "prior_predictive",
+            "full_data_posterior",
+            "grouped_validation_posterior"
+        ],
+        "cache_import_contract.permitted_operations"
+    )
+
+    _require_exact_value(
+        cache_import_contract["required_operation_counts"],
+        {
+            "prior_predictive": 528,
+            "full_data_posterior": 528,
+            "grouped_validation_posterior": 393
+        },
+        "cache_import_contract.required_operation_counts"
+    )
+
+    if cache_import_contract["required_source_entry_count"] != sum(
+        cache_import_contract["required_operation_counts"].values()
+    ):
+        raise RuntimeError("Bayesian cache import entry count does not reconcile.")
+
+    for required_true_field in (
+        "inference_data_required",
+        "source_draws_are_read_only",
+        "source_model_prior_likelihood_sampling_candidate_seed_and_input_contract_unchanged",
+        "source_cache_identity_and_artifact_hashes_revalidated",
+        "posterior_derived_statistics_recomputed_under_current_reporting_contract",
+        "source_sampler_diagnostics_reused_only_after_schema_and_identity_validation"
+    ):
+        _require_true(
+            cache_import_contract[required_true_field],
+            f"cache_import_contract.{required_true_field}"
+        )
+
     for required_cache_identity_field in (
         "policy_sha256",
         "verified_input_hashes",
@@ -7169,7 +8955,8 @@ def validate_policy(policy: dict) -> None:
             "report_file", "tables", "posterior_directory",
             "failed_candidates_remain_in_registry", "exact_table_schemas_required",
             "input_hashes_required", "table_hashes_required", "posterior_hashes_required",
-            "embedded_policy_required", "transactional_publication_required",
+            "embedded_policy_required", "implementation_sha256_recorded",
+            "transactional_publication_required",
             "post_publication_validation_required", "silent_failure_permitted",
             "silent_candidate_exclusion_permitted", "silent_prior_change_permitted",
             "silent_specification_change_permitted",
@@ -7259,6 +9046,222 @@ def validate_policy(policy: dict) -> None:
 
         if outcome_definition["support"] != "strictly_positive":
             raise RuntimeError(f"Bayesian outcome definition uses an unsupported support : {outcome_name}")
+
+    # Validating runtime-driving predictive_assessment fields
+    predictive_assessment = policy["predictive_assessment"]
+
+    _require_positive_integer(
+        predictive_assessment["horizon_bin_count"],
+        "predictive_assessment.horizon_bin_count"
+    )
+
+    _require_open_probability(
+        predictive_assessment["posterior_predictive_interval_probability"],
+        "predictive_assessment.posterior_predictive_interval_probability"
+    )
+
+    _require_open_probability(
+        predictive_assessment["predictive_interval_lower_probability"],
+        "predictive_assessment.predictive_interval_lower_probability"
+    )
+
+    _require_open_probability(
+        predictive_assessment["predictive_interval_upper_probability"],
+        "predictive_assessment.predictive_interval_upper_probability"
+    )
+
+    if (
+        predictive_assessment["predictive_interval_lower_probability"]
+        >= predictive_assessment["predictive_interval_upper_probability"]
+    ):
+        raise RuntimeError(
+            "Bayesian policy requires predictive_interval_lower_probability < predictive_interval_upper_probability."
+        )
+
+    expected_posterior_predictive_statistics = {
+        "equal_cell_weighted_median",
+        "equal_cell_weighted_median_absolute_deviation",
+        "equal_cell_weighted_minimum",
+        "equal_cell_weighted_maximum",
+        "equal_cell_weighted_quantile_0.05",
+        "equal_cell_weighted_quantile_0.25",
+        "equal_cell_weighted_quantile_0.50",
+        "equal_cell_weighted_quantile_0.75",
+        "equal_cell_weighted_quantile_0.95",
+        "equal_cell_weighted_within_cell_first_to_last_change_median"
+    }
+
+    if set(predictive_assessment["posterior_predictive_statistics"]) != expected_posterior_predictive_statistics:
+        raise RuntimeError(
+            "Bayesian policy posterior_predictive_statistics do not match the implemented statistic inventory."
+        )
+
+    expected_population_inventory = {
+        "all_observations",
+        "all_repeated_cell_observations",
+        "condition_all_observations",
+        "condition_repeated_cell_observations",
+        "condition_horizon_bin"
+    }
+
+    if set(predictive_assessment["posterior_predictive_population_inventory"]) != expected_population_inventory:
+        raise RuntimeError(
+            "Bayesian policy posterior_predictive_population_inventory does not match the implemented population inventory."
+        )
+
+    _require_true(
+        predictive_assessment["posterior_predictive_inventory_must_be_exact"],
+        "predictive_assessment.posterior_predictive_inventory_must_be_exact"
+    )
+
+    for required_positive_integer_field in (
+        "training_fold_minimum_independent_cells_per_condition",
+        "training_fold_minimum_repeated_cells_per_condition"
+    ):
+        _require_positive_integer(
+            predictive_assessment[required_positive_integer_field],
+            f"predictive_assessment.{required_positive_integer_field}"
+        )
+
+    for required_true_field in (
+        "training_fold_full_rank_required",
+        "training_fold_finite_transformed_values_required",
+        "training_fold_same_condition_horizon_coverage_required",
+        "strictly_positive_finite_predictions_required",
+        "complete_prediction_for_every_valid_test_observation_required",
+        "condition_calibration_required",
+        "empty_population_disqualifies_candidate_required"
+    ):
+        if required_true_field not in predictive_assessment:
+            continue
+        _require_true(
+            predictive_assessment[required_true_field],
+            f"predictive_assessment.{required_true_field}"
+        )
+
+    # Validating runtime-driving trajectory_reporting fields
+    trajectory_reporting = policy["trajectory_reporting"]
+
+    _require_positive_integer(
+        trajectory_reporting["trajectory_grid_size"],
+        "trajectory_reporting.trajectory_grid_size"
+    )
+
+    if trajectory_reporting["trajectory_grid_size"] < 2:
+        raise RuntimeError("Bayesian policy requires trajectory_grid_size of at least 2.")
+
+    _require_open_probability(
+        trajectory_reporting["credible_interval_probability"],
+        "trajectory_reporting.credible_interval_probability"
+    )
+
+    _require_open_probability(
+        trajectory_reporting["continuous_pairwise_difference_reporting"]["credible_interval_probability"],
+        "trajectory_reporting.continuous_pairwise_difference_reporting.credible_interval_probability"
+    )
+
+    if set(trajectory_reporting["continuous_pairwise_difference_reporting"]["summary_statistics"]) != {
+        "posterior_draw_mean",
+        "posterior_draw_median",
+        "equal_tailed_credible_interval"
+    }:
+        raise RuntimeError(
+            "Bayesian policy continuous_pairwise_difference_reporting summary_statistics do not match the implemented inventory."
+        )
+
+    # Validating analytical_qualification runtime-driving fields
+    analytical_qualification = policy["predictive_assessment"]["analytical_qualification"]
+
+    for required_qualification_true_field in (
+        "prior_predictive_review_acknowledged_required",
+        "full_posterior_sampler_diagnostics_completed_required",
+        "posterior_predictive_diagnostics_completed_required",
+        "grouped_validation_completed_required",
+        "predictive_r_squared_completed_required",
+        "prediction_intervals_completed_required",
+        "condition_calibration_completed_required",
+        "strictly_positive_finite_predictions_required"
+    ):
+        _require_true(
+            analytical_qualification[required_qualification_true_field],
+            f"predictive_assessment.analytical_qualification.{required_qualification_true_field}"
+        )
+
+    _require_exact_value(
+        analytical_qualification["failed_qualification_status"],
+        "diagnostic_only",
+        "predictive_assessment.analytical_qualification.failed_qualification_status"
+    )
+
+    _require_exact_value(
+        analytical_qualification["reference_prior_multiplier_required"],
+        policy["sampling"]["reference_posterior_multiplier"],
+        "predictive_assessment.analytical_qualification.reference_prior_multiplier_required"
+    )
+
+    # Validating observation-order and accounting field inventories
+    _require_exact_value(
+        policy["observation_contract"]["candidate_observation_order"],
+        [
+            "condition_protocol_identity",
+            "cell_identity",
+            "horizon",
+            "source_identity"
+        ],
+        "observation_contract.candidate_observation_order"
+    )
+
+    _require_exact_value(
+        policy["observation_contract"]["reconstructed_source_candidate_accounting_fields"],
+        [
+            "source_record_count",
+            "included_record_count",
+            "excluded_record_count",
+            "missing_horizon_count",
+            "nonpositive_horizon_count",
+            "missing_outcome_count",
+            "cohort_ineligible_count",
+            "incomplete_cumulative_fec_count",
+            "inside_evaluation_interval_count",
+            "outside_evaluation_interval_count"
+        ],
+        "observation_contract.reconstructed_source_candidate_accounting_fields"
+    )
+
+    # Validating output contract implementation binding
+    _require_true(
+        policy["output_contract"]["implementation_sha256_recorded"],
+        "output_contract.implementation_sha256_recorded"
+    )
+
+    # Validating execution contract output inventories against output_contract.tables
+    all_declared_tables = set(policy["output_contract"]["tables"])
+
+    validate_required_outputs = set(policy["execution_contract"]["validate"]["required_outputs"])
+    expected_validate_tables = all_declared_tables - {
+        table_name for table_name in all_declared_tables
+        if table_name not in {
+            "candidate_registry", "observation_accounting",
+            "grouped_validation_folds", "bayesian_modeling_report"
+        }
+    }
+
+    if not expected_validate_tables.issubset(validate_required_outputs):
+        raise RuntimeError(
+            "Bayesian execution_contract.validate.required_outputs are inconsistent with the declared tables."
+        )
+
+    prior_predictive_outputs = set(policy["execution_contract"]["prior_predictive"]["required_outputs"])
+
+    if "prior_predictive_diagnostics" not in prior_predictive_outputs:
+        raise RuntimeError(
+            "Bayesian execution_contract.prior_predictive.required_outputs must include prior_predictive_diagnostics."
+        )
+
+    fit_outputs = set(policy["execution_contract"]["fit"]["required_outputs"])
+
+    if not all_declared_tables.issubset(fit_outputs):
+        raise RuntimeError("Bayesian execution_contract.fit.required_outputs must include every declared output_contract table.")
 
     amendment = _require_exact_fields(
         policy["amendment"],
@@ -8976,9 +10979,7 @@ def _validate_registered_reason_code(reason_code, category_name: str, policy: di
     )
 
     if reason_code not in registered_codes:
-        raise RuntimeError(
-            f"Unregistered {category_name} reason code : {reason_code}"
-        )
+        raise RuntimeError(f"Unregistered {category_name} reason code : {reason_code}")
 
 
 # Confirming every reason code in one candidate record is registered
@@ -8996,6 +10997,70 @@ def _validate_candidate_reason_codes(candidate_record: dict, policy: dict) -> No
             "grouped_validation",
             policy
         )
+
+
+# Confirming every emitted reason code across analytical outputs is registered
+def _validate_all_reason_codes(fit_outputs: dict, policy: dict) -> None:
+    record_families = [
+        ("sampler_diagnostics", fit_outputs["sampler_diagnostics"], "diagnostic_reason_code"),
+        ("posterior_predictive_execution", fit_outputs["posterior_predictive_diagnostics"], "diagnostic_reason_code"),
+        ("grouped_validation_execution", fit_outputs["grouped_validation_predictions"], "prediction_reason_code"),
+        ("grouped_validation_execution", fit_outputs["grouped_validation_metrics"], "validation_reason_code"),
+        ("grouped_validation_execution", fit_outputs["grouped_validation_condition_calibration"], "calibration_reason_code"),
+        ("trajectory_reporting", fit_outputs["continuous_trajectory_summaries"], "analytical_reason_code"),
+        ("trajectory_reporting", fit_outputs["continuous_trajectory_difference_summaries"], "analytical_reason_code"),
+        ("analytical_qualification", fit_outputs["prior_sensitivity_summaries"], "sensitivity_reason_code")
+    ]
+
+    for category_name, records, field_name in record_families:
+        for record in records:
+            reason_code = record.get(field_name)
+
+            if reason_code is None:
+                continue
+
+            _validate_registered_reason_code(
+                reason_code,
+                category_name,
+                policy
+            )
+
+    for posterior_summary in fit_outputs["posterior_summaries"]:
+        reason_code = posterior_summary.get("summary_reason_code")
+
+        if reason_code is None:
+            continue
+
+        if reason_code == "POSTERIOR_SAMPLING_COMPLETED":
+            _validate_registered_reason_code(
+                reason_code,
+                "posterior_sampling",
+                policy
+            )
+        elif reason_code == "SAMPLER_NONFINITE_DRAWS":
+            _validate_registered_reason_code(
+                reason_code,
+                "sampler_diagnostics",
+                policy
+            )
+        else:
+            raise RuntimeError(f"Unregistered posterior summary reason code : {reason_code}")
+
+    for posterior_record in fit_outputs["posterior_records"]:
+        fit_status = posterior_record.get("fit_status")
+
+        if fit_status == "completed":
+            _validate_registered_reason_code(
+                "POSTERIOR_SAMPLING_COMPLETED",
+                "posterior_sampling",
+                policy
+            )
+        elif fit_status == "fit_failed":
+            _validate_registered_reason_code(
+                "POSTERIOR_SAMPLING_FAILED",
+                "posterior_sampling",
+                policy
+            )
 
 
 # Confirming every fold reason code is registered
@@ -9121,6 +11186,11 @@ def build_validation_workflow(validated_inputs: dict) -> dict:
                 if admissibility["admissibility_status"] == "admissible"
                 else "inadmissible"
             ),
+            "posterior_analytical_status": "not_available",
+            "posterior_analytical_reason_code": "ANALYTICAL_QUALIFICATION_NOT_AVAILABLE",
+            "posterior_qualification_failed_gates": [],
+            "posterior_status_by_prior_multiplier": {},
+            "posterior_reason_codes_by_prior_multiplier": {},
             "effective_fold_count": fold_summary["effective_fold_count"],
             "available_fold_count": fold_summary["available_fold_count"],
             "unavailable_fold_count": fold_summary["unavailable_fold_count"],
@@ -9218,6 +11288,9 @@ def build_validation_report(workflow: dict, produced_table_names: list[str]) -> 
         "policy_version": policy["policy_version"],
         "policy_effective_date": policy["effective_date"],
         "policy_sha256": validated_inputs["policy_sha256"],
+        "implementation_sha256": calculate_file_sha256(
+            Path(__file__).resolve()
+        ),
         "policy": policy,
         "input_hashes": {
             "feature_manifest_sha256": validated_inputs["feature_manifest_sha256"],
@@ -9247,10 +11320,9 @@ def validate_bayesian_report(report_path: Path, expected_policy: dict,
                              expected_policy_sha256: str, expected_input_hashes: dict,
                              expected_candidate_records: list[dict], expected_accounting_records: list[dict],
                              expected_fold_records: list[dict], expected_execution_plan: dict,
-                             expected_operation: str,
-                             expected_additional_tables: dict | None = None,
-                             expected_review_template: dict | None = None,
-                             expected_execution_accounting: dict | None = None
+                             expected_operation: str, expected_additional_tables: dict | None = None,
+                             expected_review_template: dict | None = None, expected_execution_accounting: dict | None = None,
+                             expected_fit_report_fields: dict | None = None
 ) -> None:
     report = load_json_object(report_path)
 
@@ -9266,11 +11338,21 @@ def validate_bayesian_report(report_path: Path, expected_policy: dict,
     if report.get("policy_sha256") != expected_policy_sha256:
         raise RuntimeError("Bayesian report has an inconsistent policy digest.")
 
+    if report.get("implementation_sha256") != calculate_file_sha256(
+        Path(__file__).resolve()
+    ):
+        raise RuntimeError("Bayesian report has an inconsistent implementation digest.")
+
     if report.get("input_hashes") != expected_input_hashes:
         raise RuntimeError("Bayesian report has inconsistent input hashes.")
 
     if report.get("execution_plan") != expected_execution_plan:
         raise RuntimeError("Bayesian report has an inconsistent execution plan.")
+
+    expected_review_required = expected_operation in {"prior_predictive", "fit"}
+
+    if report.get("prior_predictive_review_required") != expected_review_required:
+        raise RuntimeError("Bayesian report has an inconsistent prior_predictive_review_required flag.")
 
     if expected_operation == "validate":
         if report.get("pymc_runtime_loaded") is not False:
@@ -9296,6 +11378,67 @@ def validate_bayesian_report(report_path: Path, expected_policy: dict,
             != expected_execution_accounting
         ):
             raise RuntimeError("Prior-predictive execution accounting differs from the validated execution.")
+
+    if expected_operation == "fit":
+        if expected_fit_report_fields is None:
+            raise RuntimeError("Fit-report validation requires expected fit fields.")
+
+        for field_name, expected_value in expected_fit_report_fields.items():
+            if field_name == "posterior_artifacts":
+                continue
+
+            if report.get(field_name) != expected_value:
+                raise RuntimeError(f"Bayesian fit report has an inconsistent field : {field_name}")
+
+        posterior_manifest = report.get("posterior_artifacts")
+
+        if not isinstance(posterior_manifest, list):
+            raise RuntimeError("Bayesian fit report has an invalid posterior manifest.")
+
+        if "posterior_artifacts" not in expected_fit_report_fields:
+            raise RuntimeError("Fit-report validation requires the expected posterior artifact manifest.")
+
+        expected_artifacts = expected_fit_report_fields["posterior_artifacts"]
+
+        if len(posterior_manifest) != len(expected_artifacts):
+            raise RuntimeError("Bayesian posterior manifest does not contain every expected artifact.")
+
+        if posterior_manifest != expected_artifacts:
+            raise RuntimeError("Bayesian fit report posterior manifest does not match the expected manifest.")
+
+        observed_artifact_keys = set()
+
+        for artifact_record in posterior_manifest:
+            _require_exact_fields(
+                artifact_record,
+                {
+                    "candidate_identity",
+                    "prior_scale_multiplier",
+                    "file_name",
+                    "sha256",
+                    "size_bytes"
+                },
+                "Bayesian posterior artifact manifest"
+            )
+            artifact_key = (
+                artifact_record["candidate_identity"],
+                float(artifact_record["prior_scale_multiplier"])
+            )
+
+            if artifact_key in observed_artifact_keys:
+                raise RuntimeError("Bayesian posterior manifest contains a duplicate artifact.")
+
+            observed_artifact_keys.add(artifact_key)
+            artifact_path = report_path.parent / artifact_record["file_name"]
+
+            if not artifact_path.is_file():
+                raise RuntimeError("Declared Bayesian posterior artifact is missing.")
+
+            if artifact_path.stat().st_size != int(artifact_record["size_bytes"]):
+                raise RuntimeError("Bayesian posterior artifact size mismatch.")
+
+            if calculate_file_sha256(artifact_path) != artifact_record["sha256"]:
+                raise RuntimeError("Bayesian posterior artifact SHA-256 mismatch.")
 
     table_manifest = report.get("tables", {})
 
@@ -9524,6 +11667,17 @@ def validate_bayesian_report(report_path: Path, expected_policy: dict,
     if report.get("inadmissible_candidate_count") != inadmissible_from_table:
         raise RuntimeError("Inadmissible candidate count does not reconcile.")
 
+    expected_admissibility_reason_counts = Counter()
+
+    for row in candidate_rows:
+        if row["admissibility_status"] == "inadmissible":
+            expected_admissibility_reason_counts[row["admissibility_reason_code"]] += 1
+
+    if report.get("admissibility_reason_counts") != dict(
+        sorted(expected_admissibility_reason_counts.items())
+    ):
+        raise RuntimeError("Bayesian report admissibility reason counts do not reconcile to the candidate table.")
+
 
 # Publishing the complete validate-operation artifact set
 def publish_validation_artifacts(workflow: dict, output_directory: Path) -> dict:
@@ -9658,6 +11812,9 @@ def build_prior_predictive_report(workflow: dict, produced_table_names: list[str
         "policy_version": policy["policy_version"],
         "policy_effective_date": policy["effective_date"],
         "policy_sha256": validated_inputs["policy_sha256"],
+        "implementation_sha256": calculate_file_sha256(
+            Path(__file__).resolve()
+        ),
         "policy": policy,
         "input_hashes": {
             "feature_manifest_sha256": validated_inputs["feature_manifest_sha256"],
@@ -9974,9 +12131,9 @@ def link_or_copy_file(source_path: Path, destination_path: Path) -> None:
 
 
 # Building the complete fit-operation report
-def build_fit_report(workflow: dict, fit_outputs: dict, table_names: list[str],
-                     posterior_manifest: list[dict], software_environment_record: dict,
-                     software_environment_sha256: str
+def build_fit_report(workflow: dict, fit_outputs: dict,
+                     table_names: list[str], posterior_manifest: list[dict],
+                     software_environment_record: dict, software_environment_sha256: str
 ) -> dict:
     policy = workflow["validated_inputs"]["policy"]
     qualification_counts = defaultdict(int)
@@ -9984,12 +12141,22 @@ def build_fit_report(workflow: dict, fit_outputs: dict, table_names: list[str],
     for record in fit_outputs["qualification"].values():
         qualification_counts[record["status"]] += 1
 
+    admissibility_reason_counts = {}
+
+    for record in workflow["candidate_records"]:
+        if record["admissibility_status"] == "inadmissible":
+            reason = record["admissibility_reason_code"]
+            admissibility_reason_counts[reason] = admissibility_reason_counts.get(reason, 0) + 1
+
     return {
         "assessment_status": "completed",
         "operation": "fit",
         "policy_version": policy["policy_version"],
         "policy_effective_date": policy["effective_date"],
         "policy_sha256": workflow["validated_inputs"]["policy_sha256"],
+        "implementation_sha256": calculate_file_sha256(
+            Path(__file__).resolve()
+        ),
         "policy": policy,
         "input_hashes": build_stochastic_input_hashes(workflow),
         "candidate_count": len(workflow["candidate_records"]),
@@ -10001,9 +12168,15 @@ def build_fit_report(workflow: dict, fit_outputs: dict, table_names: list[str],
             record["admissibility_status"] == "inadmissible"
             for record in workflow["candidate_records"]
         ),
+        "admissibility_reason_counts": admissibility_reason_counts,
         "execution_plan": workflow["execution_plan"],
         "pymc_runtime_loaded": True,
-        "posterior_sampling_performed": True,
+        "posterior_sampling_performed": (
+            fit_outputs["full_posterior_execution_accounting"]["new_cache_count"]
+            + fit_outputs["grouped_validation_execution_accounting"]["new_cache_count"]
+            > 0
+        ),
+        "posterior_sampling_available_in_artifact_set": True,
         "prior_predictive_review_required": True,
         "prior_predictive_review_sha256": calculate_file_sha256(
             PROJECT_ROOT / policy["prior_predictive_review"]["review_artifact_path"]
@@ -10013,6 +12186,15 @@ def build_fit_report(workflow: dict, fit_outputs: dict, table_names: list[str],
         "full_posterior_execution_accounting": fit_outputs["full_posterior_execution_accounting"],
         "grouped_validation_execution_accounting": fit_outputs["grouped_validation_execution_accounting"],
         "analytical_qualification_counts": dict(sorted(qualification_counts.items())),
+        "qualification_gate_failure_counts": dict(
+            sorted(
+                Counter(
+                    gate_name
+                    for qualification_record in fit_outputs["qualification"].values()
+                    for gate_name in qualification_record.get("failed_gates", [])
+                ).items()
+            )
+        ),
         "posterior_artifacts": posterior_manifest,
         "produced_tables": table_names,
         "not_produced_tables": [],
@@ -10182,6 +12364,17 @@ def publish_fit_artifacts(workflow: dict, output_directory: Path, cache_director
                 raise RuntimeError("Published posterior artifact hash mismatch.")
 
         def validate_published_fit() -> None:
+            expected_qualification_counts = defaultdict(int)
+            expected_gate_failure_counts = Counter()
+
+            for qualification_record in fit_outputs["qualification"].values():
+                expected_qualification_counts[
+                    qualification_record["status"]
+                ] += 1
+
+                for gate_name in qualification_record.get("failed_gates", []):
+                    expected_gate_failure_counts[gate_name] += 1
+
             validate_bayesian_report(
                 report_path = (
                     output_directory
@@ -10213,8 +12406,38 @@ def publish_fit_artifacts(workflow: dict, output_directory: Path, cache_director
                     "execution_plan"
                 ],
                 expected_operation = "fit",
-                expected_additional_tables = additional_tables
+                expected_additional_tables = additional_tables,
+                expected_fit_report_fields = {
+                    "pymc_runtime_loaded": True,
+                    "posterior_sampling_performed": (
+                        fit_outputs["full_posterior_execution_accounting"]["new_cache_count"]
+                        + fit_outputs["grouped_validation_execution_accounting"]["new_cache_count"]
+                        > 0
+                    ),
+                    "posterior_sampling_available_in_artifact_set": True,
+                    "prior_predictive_review_required": True,
+                    "prior_predictive_review_sha256": calculate_file_sha256(
+                        PROJECT_ROOT
+                        / workflow["validated_inputs"]["policy"]["prior_predictive_review"]["review_artifact_path"]
+                    ),
+                    "software_environment": software_environment_record,
+                    "software_environment_sha256": software_environment_sha256,
+                    "full_posterior_execution_accounting": fit_outputs["full_posterior_execution_accounting"],
+                    "grouped_validation_execution_accounting": fit_outputs["grouped_validation_execution_accounting"],
+                    "analytical_qualification_counts": dict(
+                        sorted(expected_qualification_counts.items())
+                    ),
+                    "qualification_gate_failure_counts": dict(
+                        sorted(expected_gate_failure_counts.items())
+                    ),
+                    "posterior_artifacts": posterior_manifest
+                }
             )
+
+            if (
+                len(posterior_manifest) != int(workflow["execution_plan"]["full_data_posterior_call_count"])
+            ):
+                raise RuntimeError("Bayesian posterior manifest does not contain every registered full-data posterior.")
 
         replace_directory_transactionally(
             staging_directory = staging_directory,
@@ -10366,6 +12589,11 @@ def execute_operation(arguments: argparse.Namespace, validated_inputs: dict) -> 
             workflow = workflow,
             output_directory = arguments.output_directory
         )
+
+    validate_registered_source_cache_inventory(
+        cache_directory = arguments.cache_directory,
+        policy = validated_inputs["policy"]
+    )
 
     if arguments.operation == "prior_predictive":
         validate_stochastic_process_environment(

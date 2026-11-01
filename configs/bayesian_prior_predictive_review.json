@@ -1,6 +1,6 @@
 {
-  "candidate_inventory_sha256": "22569b38d8632bb3f4499ea777676a7349ebad9cf4ca455bfe2fbdf44f68d4f9",
-  "policy_sha256": "80e153cc486943f022b9baf775c480dc7810d11ba343e71a35b14ac87f341b12",
+  "candidate_inventory_sha256": "daa11c7b38bcb0ffb52b636e9a5c74f830279bfb83905e783684c61e95c4be83",
+  "policy_sha256": "deaa0351a1fbaad44d6db1e510d8c6ae3cde3551d9c8ef28a97892046c59c18e",
   "prior_predictive_diagnostics_sha256": "9f076ce6535229962d14224a2f935abf9f4212bc914673a747835b238d7bf81a",
   "review_records": [
     {

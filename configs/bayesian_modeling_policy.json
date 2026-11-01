@@ -1,14 +1,16 @@
 {
-  "policy_version": "1.17",
-  "effective_date": "2026-10-26",
-  "previous_policy_sha256": "ac2ec547b648b40713d3e482633ff23198c61eb41a1060f234a87836b648e422",
+  "policy_version": "1.20",
+  "effective_date": "2026-10-30",
+  "previous_policy_sha256": "3efe123b537a796592eddce164b349992e0aa42c068d33ddb0bf384b69b6813f",
   "registration": {
-    "status": "registered_before_bayesian_model_fitting",
+    "status": "amended_after_bayesian_results",
     "descriptive_results_available_at_registration": true,
-    "bayesian_results_available_at_registration": false,
+    "prior_predictive_results_available_at_registration": true,
+    "posterior_results_available_at_registration": true,
+    "bayesian_results_available_at_registration": true,
     "causal_identification_status": "not_identified_from_observed_design",
     "result_informed": true,
-    "result_informed_scope": "modeling architecture follows completed descriptive diagnostics; candidate construction does not use outcome direction, statistical significance or preferred fitted effects",
+    "result_informed_scope": "reporting_provenance_posterior_predictive_qualification_and_cache_import_contracts_follow_inspection_of_prior_predictive_posterior_sampler_validation_and_reporting_artifacts; no observed_effect_direction_preferred_result_or_statistical_significance_selected_the_model_priors_likelihood_candidates_support_domains_sampler_settings_or_acceptance_thresholds",
     "analysis_classification": "exploratory_associational"
   },
   "authorization": {
@@ -169,6 +171,15 @@
       "diagnostic_only",
       "not_available"
     ],
+    "candidate_registry_execution_field": "candidate_execution_status",
+    "candidate_registry_reference_analytical_fields": [
+      "posterior_analytical_status",
+      "posterior_analytical_reason_code"
+    ],
+    "candidate_registry_multiplier_status_fields": [
+      "posterior_status_by_prior_multiplier",
+      "posterior_reason_codes_by_prior_multiplier"
+    ],
     "reference_posterior_status_rule": "available_only_when_prior_review_sampler_diagnostics_posterior_predictive_diagnostics_grouped_validation_prediction_intervals_and_condition_calibration_all_complete_and_predictive_benchmark_is_met",
     "sensitivity_posterior_status_rule": "reported_as_prior_sensitivity_only_and_never_used_to_replace_or_reclassify_the_reference_posterior",
     "completed_execution_does_not_imply_all_candidates_are_available": true,
@@ -261,7 +272,8 @@
       "CACHE_IDENTITY_MISMATCH",
       "CACHE_ARTIFACT_HASH_MISMATCH",
       "CACHE_INCOMPLETE_ENTRY",
-      "CACHE_CORRUPT_QUARANTINED"
+      "CACHE_CORRUPT_QUARANTINED",
+      "CACHE_TERMINAL_FAILURE"
     ],
     "posterior_sampling": [
       "POSTERIOR_SAMPLING_COMPLETED",
@@ -278,7 +290,9 @@
     ],
     "posterior_predictive_execution": [
       "POSTERIOR_PREDICTIVE_COMPLETED",
-      "POSTERIOR_PREDICTIVE_FAILED"
+      "POSTERIOR_PREDICTIVE_FAILED",
+      "POSTERIOR_PREDICTIVE_POPULATION_EMPTY",
+      "POSTERIOR_PREDICTIVE_WITHIN_CELL_CHANGE_UNAVAILABLE"
     ],
     "grouped_validation_execution": [
       "GROUPED_VALIDATION_EXECUTION_COMPLETED",
@@ -288,12 +302,19 @@
     "analytical_qualification": [
       "ANALYTICAL_QUALIFICATION_AVAILABLE",
       "ANALYTICAL_QUALIFICATION_DIAGNOSTIC_ONLY",
-      "ANALYTICAL_QUALIFICATION_NOT_AVAILABLE"
+      "ANALYTICAL_QUALIFICATION_NOT_AVAILABLE",
+      "REFERENCE_POSTERIOR_DIAGNOSTICS_FAILED",
+      "SENSITIVITY_POSTERIOR_DIAGNOSTICS_FAILED",
+      "NONFINITE_TRAJECTORY_DERIVATION"
     ],
     "trajectory_reporting": [
       "TRAJECTORY_REPORTING_COMPLETED",
       "TRAJECTORY_REPORTING_SKIPPED_NO_REFERENCE_POSTERIOR",
-      "TRAJECTORY_REPORTING_SKIPPED_NONFINITE_DRAWS"
+      "TRAJECTORY_REPORTING_SKIPPED_NONFINITE_DRAWS",
+      "REFERENCE_POSTERIOR_NOT_ANALYTICALLY_AVAILABLE",
+      "CONDITIONS_NOT_PRESENT_IN_CANDIDATE",
+      "NO_POSITIVE_WIDTH_CONTINUOUS_EVALUATION_RANGE",
+      "NONFINITE_TRAJECTORY_DERIVATION"
     ]
   },
   "outcomes": {
@@ -458,6 +479,14 @@
     "grouped_validation_scale_multiplier": 1.0,
     "reference_analytical_scale_multiplier": 1.0,
     "prior_sensitivity_posteriors_do_not_replace_reference_posterior": true,
+    "prior_sensitivity_reporting_targets": [
+      "registered_model_parameters",
+      "condition_latent_trajectory_grid"
+    ],
+    "prior_sensitivity_reference_and_comparison_sampler_diagnostics_required": true,
+    "failed_sampler_diagnostic_action": "record_unavailable_with_explicit_reason_code",
+    "trajectory_sensitivity_statistic": "difference_in_posterior_median_latent_trajectory_between_sensitivity_and_reference_priors",
+    "parameter_or_trajectory_identity_semantics": "parameter_identity_for_registered_parameters_and_condition_protocol_identity_plus_grid_index_for_latent_trajectory_values",
     "prior_predictive_draws_per_multiplier": 2000,
     "prior_predictive_seeds": {
       "0.5": 17387,
@@ -708,13 +737,30 @@
     "posterior_predictive_statistics": [
       "equal_cell_weighted_median",
       "equal_cell_weighted_median_absolute_deviation",
-      "minimum",
-      "maximum",
-      "quantiles_0.05_0.25_0.50_0.75_0.95",
-      "within_cell_first_to_last_change",
-      "condition_level_median",
-      "horizon_bin_median"
+      "equal_cell_weighted_minimum",
+      "equal_cell_weighted_maximum",
+      "equal_cell_weighted_quantile_0.05",
+      "equal_cell_weighted_quantile_0.25",
+      "equal_cell_weighted_quantile_0.50",
+      "equal_cell_weighted_quantile_0.75",
+      "equal_cell_weighted_quantile_0.95",
+      "equal_cell_weighted_within_cell_first_to_last_change_median"
     ],
+    "posterior_predictive_population_inventory": [
+      "all_observations",
+      "all_repeated_cell_observations",
+      "condition_all_observations",
+      "condition_repeated_cell_observations",
+      "condition_horizon_bin"
+    ],
+    "posterior_predictive_inventory_must_be_exact": true,
+    "posterior_predictive_equal_cell_weighting": "reduce observations within each cell to the numpy linear median, then calculate every registered statistic across the resulting equally weighted cell-level medians",
+    "posterior_predictive_within_cell_reduction": "numpy_linear_median",
+    "posterior_predictive_statistic_target": "distribution_across_equal_weighted_cell_level_median_outcomes",
+    "within_cell_change_population": "cells_with_at_least_two_ordered_observations_in_the_diagnostic_population",
+    "single_observation_cells_excluded_only_from_within_cell_change": true,
+    "empty_population_status": "unavailable",
+    "empty_population_disqualifies_candidate": false,
     "posterior_predictive_p_value_used_for_acceptance": false,
     "new_cell_validation_method": "deterministic_cell_grouped_k_fold_refitting",
     "requested_fold_count": 5,
@@ -895,7 +941,8 @@
         "NO_POSITIVE_WIDTH_CONTINUOUS_EVALUATION_RANGE": "The authorized comparison has no positive-width range over which a continuous difference trajectory can be reported.",
         "CONDITIONS_NOT_PRESENT_IN_CANDIDATE": "The candidate does not contain both estimand conditions.",
         "NO_SHARED_AUTHORIZED_RANGE": "The candidate support and estimand-permitted ranges do not have a positive-width intersection.",
-        "REFERENCE_POSTERIOR_NOT_ANALYTICALLY_AVAILABLE": "The reference posterior did not satisfy the registered analytical qualification requirements."
+        "REFERENCE_POSTERIOR_NOT_ANALYTICALLY_AVAILABLE": "The reference posterior did not satisfy the registered analytical qualification requirements.",
+        "NONFINITE_TRAJECTORY_DERIVATION": "The requested trajectory quantity could not be derived as a finite value from the posterior draws."
       }
     },
     "posterior_quantile_method": "numpy_linear",
@@ -1015,6 +1062,37 @@
       "execution_status"
     ]
   },
+  "cache_import_contract": {
+    "enabled": true,
+    "source_policy_sha256": "80e153cc486943f022b9baf775c480dc7810d11ba343e71a35b14ac87f341b12",
+    "source_implementation_sha256": "8d982edfd48538a573b1bd8d5263152c7a9f1978c4cd694153654a73200ab25b",
+    "source_software_environment_sha256": "a8af8849820aa4a724c17d5d274ccefa638fdc4b3ea7defe0b15229f81cd4060",
+    "verified_input_hashes": {
+      "feature_manifest_sha256": "7e5ef6475bdcb252896b68188262c6bae9b40a5ade729029ba5a523136002afa",
+      "design_report_sha256": "ef71483eae21d24f82e0d4ae65e1c269caf368fa4ec3d3c0b12e88a1347062b2",
+      "identification_report_sha256": "2eea2134acd8b458434d9cb16a477a0a212b035f3ceecf6cc9d77fd2bf8097d5",
+      "descriptive_report_sha256": "afa4973834e3b7a50d9387074e6b56cd6e1ea5ad826dcf0a52c94e06c0669956"
+    },
+    "permitted_operations": [
+      "prior_predictive",
+      "full_data_posterior",
+      "grouped_validation_posterior"
+    ],
+    "required_source_entry_count": 1449,
+    "required_operation_counts": {
+      "prior_predictive": 528,
+      "full_data_posterior": 528,
+      "grouped_validation_posterior": 393
+    },
+    "required_source_execution_status": "completed",
+    "inference_data_required": true,
+    "source_draws_are_read_only": true,
+    "source_model_prior_likelihood_sampling_candidate_seed_and_input_contract_unchanged": true,
+    "source_cache_identity_and_artifact_hashes_revalidated": true,
+    "posterior_derived_statistics_recomputed_under_current_reporting_contract": true,
+    "source_sampler_diagnostics_reused_only_after_schema_and_identity_validation": true,
+    "missing_or_invalid_source_entry_action": "abort_import_without_sampling_or_source_mutation"
+  },
   "reproducibility": {
     "single_threaded_numerical_execution": true,
     "python_hash_seed": 0,
@@ -1118,6 +1196,7 @@
     "table_hashes_required": true,
     "posterior_hashes_required": true,
     "embedded_policy_required": true,
+    "implementation_sha256_recorded": true,
     "transactional_publication_required": true,
     "post_publication_validation_required": true,
     "silent_failure_permitted": false,
@@ -1250,19 +1329,16 @@
     "posterior_predictive_requires_coordinate_dimension": true
   },
   "amendment": {
-    "reason": "Completes and freezes the posterior-execution contract, including 2,000 tuning and 2,000 retained posterior draws per chain, implementation-bound resumable cache identities, cache-only sharded execution, deterministic new-cell prediction, grouped held-out-cell validation, prior-sensitivity reporting without an unregistered binary materiality threshold, analytical qualification and transactional publication. The lineage is corrected to Bayesian modeling policy version 1.16. Priors, likelihood, candidate authorization, support domains, diagnostic thresholds and qualification rules were not selected from Bayesian posterior effect direction or preferred analytical results.",
-    "result_informed": false,
-    "result_informed_scope": "implementation_completion_and_lineage_correction_only_no_bayesian_posterior_result_used_to_select_the_registered_model_or_acceptance_rules",
+    "reason": "Amends Bayesian modeling policy version 1.19 to (i) bind every published report to the executing implementation SHA-256, (ii) enforce exact nested cache-identity equality including a recomputed identity digest and directory-name check, (iii) validate the complete set of runtime-driving predictive_assessment, trajectory_reporting, analytical_qualification and observation-order fields, (iv) register the already-emitted CACHE_TERMINAL_FAILURE reason code, (v) require per-candidate failed-gate reason reporting for diagnostic-only candidates, and (vi) reconcile admissibility reason counts and per-operation prior-predictive review requirements against the candidate table. No prior, likelihood, threshold, candidate inventory, support domain, sampler setting, or qualification gate is altered. The 1.17 source posterior cache remains the sole source of draws under the registered import contract; no new sampling is performed.",
+    "result_informed": true,
+    "result_informed_scope": "implementation_enforcement_and_reporting_only_no_observed_effect_direction_preferred_result_or_statistical_significance_used_to_select_priors_likelihood_candidates_support_domains_sampler_settings_or_acceptance_thresholds",
     "affected_analyses": [
-      "prior_predictive_execution",
-      "posterior_execution",
-      "grouped_validation_execution",
-      "posterior_predictive_reporting",
-      "analytical_qualification",
-      "trajectory_reporting",
-      "prior_sensitivity_reporting",
-      "cache_identity",
-      "artifact_publication"
+      "policy_validation",
+      "cache_validation",
+      "candidate_qualification_reporting",
+      "report_publication",
+      "artifact_validation",
+      "test_behavior"
     ],
     "complete_rerun_required": true
   }

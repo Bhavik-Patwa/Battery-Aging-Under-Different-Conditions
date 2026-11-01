@@ -1498,6 +1498,9 @@ def build_admissible_component_candidate() -> dict:
         "condition_identities": conditions,
         "included_observations": included_observations,
         "collapsed_candidate": {
+            "outcome": "relative_capacity",
+            "cohort": "primary",
+            "horizon_axis": "elapsed_calendar_days",
             "support_interval_minimum": "0.0",
             "support_interval_maximum": "50.0",
             "support_interval_lower_inclusive": "true",
@@ -2726,6 +2729,11 @@ def test_full_posterior_sharding_partitions_cache_identities(monkeypatch: pytest
         "write_failure_cache_entry_transactionally",
         fake_write_failure,
     )
+    monkeypatch.setattr(
+        bayesian_models,
+        "build_import_source_cache_identity",
+        lambda policy, cache_identity: None,
+    )
 
     shard_count = 8
 
@@ -2774,3 +2782,1270 @@ def test_full_posterior_sharding_partitions_cache_identities(monkeypatch: pytest
             shard_count = 8,
             shard_index = -1,
         )
+
+
+# Confirming that a missing registered source cache aborts without sampling
+def test_missing_registered_source_cache_aborts_without_sampling(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    policy = load_json_object(
+        PROJECT_POLICY_PATH
+    )
+
+    cache_directory = (
+        tmp_path
+        / "empty_source_cache"
+    )
+
+    cache_directory.mkdir()
+
+    import_hashes = policy[
+        "cache_import_contract"
+    ][
+        "verified_input_hashes"
+    ]
+
+    cache_identity = bayesian_models.build_cache_identity(
+        policy = policy,
+        policy_sha256 = "a" * 64,
+        input_hashes = import_hashes,
+        software_environment_sha256 = policy[
+            "cache_import_contract"
+        ][
+            "source_software_environment_sha256"
+        ],
+        candidate_identity = "candidate-1",
+        operation = "prior_predictive",
+        prior_scale_multiplier = 1.0,
+        validation_fold_identity = None
+    )
+
+    def reject_prior_predictive_sampling(*args, **kwargs):
+        raise AssertionError(
+            "sample_prior_predictive_candidate was called despite a missing source cache."
+        )
+
+    def reject_posterior_sampling(*args, **kwargs):
+        raise AssertionError(
+            "sample_posterior_candidate was called despite a missing source cache."
+        )
+
+    def reject_grouped_sampling(*args, **kwargs):
+        raise AssertionError(
+            "sample_grouped_validation_posterior was called despite a missing source cache."
+        )
+
+    monkeypatch.setattr(
+        bayesian_models,
+        "sample_prior_predictive_candidate",
+        reject_prior_predictive_sampling
+    )
+
+    monkeypatch.setattr(
+        bayesian_models,
+        "sample_posterior_candidate",
+        reject_posterior_sampling
+    )
+
+    monkeypatch.setattr(
+        bayesian_models,
+        "sample_grouped_validation_posterior",
+        reject_grouped_sampling
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match = "Registered immutable source cache entry is unavailable"
+    ):
+        bayesian_models.read_cache_entry_with_registered_import(
+            cache_directory = cache_directory,
+            cache_identity = cache_identity,
+            policy = policy
+        )
+
+
+# Confirming the posterior-predictive inventory matches the policy exactly
+def test_posterior_predictive_inventory_matches_policy_exactly() -> None:
+    policy = load_json_object(PROJECT_POLICY_PATH)
+    candidate = build_admissible_component_candidate()
+
+    model, _ = bayesian_models.build_pymc_model(
+        candidate = candidate,
+        policy = policy,
+        prior_scale_multiplier = 1.0
+    )
+
+    with model:
+        inference_data = pm.sample(
+            draws = 5, tune = 5, chains = 2, cores = 1,
+            random_seed = 17401, progressbar = False,
+            compute_convergence_checks = False, return_inferencedata = True
+        )
+        inference_data = pm.sample_posterior_predictive(
+            inference_data,
+            var_names = policy["posterior_artifact_contract"]["pymc_posterior_predictive_variable_names"],
+            random_seed = 17449, extend_inferencedata = True,
+            return_inferencedata = True, progressbar = False
+        )
+
+    inference_data.posterior_predictive[
+        policy["posterior_artifact_contract"]["original_scale_predictive_variable_name"]
+    ] = np.exp(
+        inference_data.posterior_predictive[
+            policy["posterior_artifact_contract"]["likelihood_variable_name"]
+        ]
+    )
+
+    records = bayesian_models.summarize_observed_cell_posterior_predictive(
+        inference_data = inference_data,
+        candidate = candidate,
+        prior_scale_multiplier = 1.0,
+        policy = policy
+    )
+
+    observed_populations = {
+        (record["diagnostic_population"], record["condition_protocol_identity"], record["horizon_bin_index"])
+        for record in records
+    }
+
+    assert ("all_observations", None, None) in observed_populations
+    assert ("all_repeated_cell_observations", None, None) in observed_populations
+
+    for condition_identity in candidate["condition_identities"]:
+        assert ("condition_all_observations", condition_identity, None) in observed_populations
+        assert ("condition_repeated_cell_observations", condition_identity, None) in observed_populations
+
+        for horizon_bin_index in range(policy["predictive_assessment"]["horizon_bin_count"]):
+            assert ("condition_horizon_bin", condition_identity, horizon_bin_index) in observed_populations
+
+
+# Confirming that an empty horizon bin is recorded as unavailable without disqualifying the candidate
+def test_empty_horizon_bin_is_unavailable_without_disqualifying_candidate() -> None:
+    candidate = {
+        "candidate_identity": "candidate-empty-bin",
+        "collapsed_candidate": {"outcome": "relative_capacity", "cohort": "primary"}
+    }
+
+    record = bayesian_models.build_posterior_predictive_diagnostic(
+        candidate = candidate,
+        prior_scale_multiplier = 1.0,
+        population_name = "condition_horizon_bin",
+        condition_identity = "condition-a",
+        observations = [],
+        predictive_values = np.empty((4, 0), dtype = float),
+        horizon_bin_index = 2
+    )
+
+    assert record["observation_count"] == 0
+    assert record["diagnostic_status"] == "unavailable"
+    assert record["diagnostic_reason_code"] == "POSTERIOR_PREDICTIVE_POPULATION_EMPTY"
+
+
+# Confirming that a single-observation cell is excluded only from the within-cell change statistic
+def test_single_observation_cell_is_excluded_only_from_change_statistic() -> None:
+    observations = [
+        {"cell_identity": "cell-a", "horizon": 10.0, "outcome_value": 1.0,
+         "source_identity": "a1", "condition_protocol_identity": "c"},
+        {"cell_identity": "cell-a", "horizon": 20.0, "outcome_value": 0.99,
+         "source_identity": "a2", "condition_protocol_identity": "c"},
+        {"cell_identity": "cell-b", "horizon": 10.0, "outcome_value": 0.98,
+         "source_identity": "b1", "condition_protocol_identity": "c"},
+    ]
+
+    predictive_values = np.full((4, 3), 0.99, dtype = float)
+
+    candidate = {
+        "candidate_identity": "c",
+        "collapsed_candidate": {"outcome": "relative_capacity", "cohort": "primary"}
+    }
+
+    record = bayesian_models.build_posterior_predictive_diagnostic(
+        candidate = candidate,
+        prior_scale_multiplier = 1.0,
+        population_name = "all_observations",
+        condition_identity = None,
+        observations = observations,
+        predictive_values = predictive_values
+    )
+
+    assert record["cell_count"] == 2
+    assert record["repeated_cell_count"] == 1
+    assert "equal_cell_weighted_median" in record["observed_statistics"]
+    assert "equal_cell_weighted_within_cell_first_to_last_change_median" in record["observed_statistics"]
+    assert record["within_cell_change_status"] == "completed"
+
+
+# Confirming that posterior-predictive statistics reduce within cell before reducing across cells
+def test_posterior_predictive_statistics_use_equal_cell_reduction() -> None:
+    observations = [
+        {"cell_identity": "cell-a", "horizon": float(i), "outcome_value": 1.0,
+         "source_identity": f"a{i}", "condition_protocol_identity": "c"}
+        for i in range(3)
+    ] + [
+        {"cell_identity": "cell-b", "horizon": 0.0, "outcome_value": 3.0,
+         "source_identity": "b0", "condition_protocol_identity": "c"}
+    ]
+
+    predictive_values = np.tile(
+        np.asarray([1.0, 1.0, 1.0, 3.0]),
+        (4, 1)
+    )
+
+    candidate = {
+        "candidate_identity": "c",
+        "collapsed_candidate": {"outcome": "relative_capacity", "cohort": "primary"}
+    }
+
+    record = bayesian_models.build_posterior_predictive_diagnostic(
+        candidate = candidate,
+        prior_scale_multiplier = 1.0,
+        population_name = "all_observations",
+        condition_identity = None,
+        observations = observations,
+        predictive_values = predictive_values
+    )
+
+    # Equal-cell median of {1.0, 3.0} is 2.0; a per-observation median would give 1.0
+    assert record["observed_statistics"]["equal_cell_weighted_median"] == pytest.approx(2.0)
+
+
+# Confirming a record with incomplete statistics is not analytically acceptable
+def test_missing_posterior_predictive_statistic_blocks_qualification() -> None:
+    policy = load_json_object(PROJECT_POLICY_PATH)
+    candidate = build_admissible_component_candidate()
+
+    workflow = {
+        "validated_inputs": {"policy": policy},
+        "candidate_records": [
+            {
+                "candidate_identity": candidate["candidate_identity"],
+                "admissibility_status": "admissible",
+                "condition_count": str(len(candidate["condition_identities"])),
+                "sorted_condition_protocol_identities": candidate["condition_identities"]
+            }
+        ]
+    }
+
+    # Build a predictive inventory with one complete population and one incomplete population whose
+    #  observed_statistics omit a registered statistic
+    complete_population_names = {
+        ("all_observations", None, None),
+        ("all_repeated_cell_observations", None, None)
+    }
+
+    for condition_identity in candidate["condition_identities"]:
+        complete_population_names.add(("condition_all_observations", condition_identity, None))
+        complete_population_names.add(("condition_repeated_cell_observations", condition_identity, None))
+        for bin_index in range(policy["predictive_assessment"]["horizon_bin_count"]):
+            complete_population_names.add(
+                ("condition_horizon_bin", condition_identity, bin_index)
+            )
+
+    expected_statistics = set(policy["predictive_assessment"]["posterior_predictive_statistics"])
+    quantile_keys = {"0.05", "0.25", "0.50", "0.75", "0.95"}
+
+    def complete_record(population_key: tuple) -> dict:
+        statistic_quantiles = {
+            statistic_name: {probability: 0.0 for probability in quantile_keys}
+            for statistic_name in expected_statistics
+        }
+        return {
+            "candidate_identity": candidate["candidate_identity"],
+            "outcome": candidate["collapsed_candidate"]["outcome"],
+            "cohort": candidate["collapsed_candidate"]["cohort"],
+            "prior_scale_multiplier": policy["sampling"]["reference_posterior_multiplier"],
+            "diagnostic_population": population_key[0],
+            "condition_protocol_identity": population_key[1],
+            "horizon_bin_index": population_key[2],
+            "observation_count": 1,
+            "repeated_cell_count": 0,
+            "predictive_nonfinite_count": 0,
+            "predictive_positive_finite_fraction": 1.0,
+            "diagnostic_status": "completed",
+            "observed_statistics": {
+                name: 0.0
+                for name in expected_statistics if name != "equal_cell_weighted_within_cell_first_to_last_change_median"
+            },
+            "posterior_predictive_statistic_medians": {
+                name: 0.0
+                for name in expected_statistics if name != "equal_cell_weighted_within_cell_first_to_last_change_median"
+            },
+            "posterior_predictive_statistic_quantiles": {
+                name: stat for name, stat in statistic_quantiles.items()
+                if name != "equal_cell_weighted_within_cell_first_to_last_change_median"
+            },
+            "within_cell_change_status": "unavailable",
+            "within_cell_change_reason_code": "POSTERIOR_PREDICTIVE_WITHIN_CELL_CHANGE_UNAVAILABLE"
+        }
+
+    records = [
+        complete_record(key)
+        for key in complete_population_names
+    ]
+
+    # Remove one statistic from the first population
+    del records[0]["observed_statistics"]["equal_cell_weighted_median"]
+
+    posterior_records = [
+        {
+            "candidate_identity": candidate["candidate_identity"],
+            "prior_scale_multiplier": 1.0,
+            "fit_status": "completed",
+            "sampler_diagnostics_status": "completed_passed"
+        }
+    ]
+
+    metric_records = [
+        {
+            "candidate_identity": candidate["candidate_identity"],
+            "validation_status": "completed",
+            "equal_cell_weighted_predictive_r_squared": 0.5
+        }
+    ]
+
+    calibration_records = [
+        {
+            "candidate_identity": candidate["candidate_identity"],
+            "condition_protocol_identity": condition_identity,
+            "calibration_status": "completed"
+        }
+        for condition_identity in candidate["condition_identities"]
+    ]
+
+    qualification = bayesian_models.qualify_reference_posteriors(
+        workflow = workflow,
+        posterior_records = posterior_records,
+        predictive_diagnostics = records,
+        validation_metrics = metric_records,
+        calibration_records = calibration_records
+    )
+
+    result = qualification[candidate["candidate_identity"]]
+
+    assert result["status"] == "diagnostic_only"
+    assert "posterior_predictive_diagnostics_failed" in result["failed_gates"]
+
+
+# Confirming a sensitivity multiplier that failed sampler diagnostics blocks parameter sensitivity
+def test_failed_sampler_diagnostics_block_parameter_sensitivity() -> None:
+    policy = load_json_object(PROJECT_POLICY_PATH)
+
+    workflow = {
+        "validated_inputs": {"policy": policy},
+        "candidate_records": [
+            {"candidate_identity": "c1", "admissibility_status": "admissible"}
+        ]
+    }
+
+    posterior_summaries = [
+        {
+            "candidate_identity": "c1",
+            "outcome": "relative_capacity",
+            "cohort": "primary",
+            "prior_scale_multiplier": m,
+            "parameter_identity": "population_intercept",
+            "coordinate_identity": None,
+            "posterior_median": 1.0,
+            "summary_status": "completed",
+            "summary_reason_code": "POSTERIOR_SAMPLING_COMPLETED"
+        }
+        for m in (0.5, 1.0, 2.0)
+    ]
+
+    posterior_records = [
+        {
+            "candidate_identity": "c1",
+            "prior_scale_multiplier": m,
+            "sampler_diagnostics_status": (
+                "completed_passed" if m == 1.0 else "completed_failed"
+            )
+        }
+        for m in (0.5, 1.0, 2.0)
+    ]
+
+    records = bayesian_models.summarize_prior_sensitivity(
+        workflow,
+        posterior_summaries,
+        posterior_records,
+        policy
+    )
+
+    unavailable = [
+        record for record in records
+        if record["sensitivity_comparison_status"] == "unavailable"
+    ]
+    assert unavailable
+    assert all(
+        record["sensitivity_reason_code"] == "SENSITIVITY_POSTERIOR_DIAGNOSTICS_FAILED"
+        for record in unavailable
+    )
+
+
+def test_cache_identity_mismatch_rejects_entry(tmp_path: Path) -> None:
+    policy = load_json_object(PROJECT_POLICY_PATH)
+
+    cache_identity = bayesian_models.build_cache_identity(
+        policy = policy,
+        policy_sha256 = "a" * 64,
+        input_hashes = policy["cache_import_contract"]["verified_input_hashes"],
+        software_environment_sha256 = "b" * 64,
+        candidate_identity = "c1",
+        operation = "full_data_posterior",
+        prior_scale_multiplier = 1.0,
+        validation_fold_identity = None
+    )
+
+    cache_directory = tmp_path / "cache"
+    entry_directory = cache_directory / cache_identity["cache_identity_sha256"]
+    entry_directory.mkdir(parents = True)
+
+    # Deliberately tamper with the nested candidate identity while keeping the top-level SHA
+    tampered_identity = dict(cache_identity)
+    tampered_identity["candidate_identity"] = "c2"
+
+    metadata_record = {
+        "cache_identity": tampered_identity,
+        "cache_identity_sha256": cache_identity["cache_identity_sha256"],
+        "software_environment": {},
+        "software_environment_sha256": "b" * 64,
+        "execution_status": "completed",
+        "artifact_hashes": {}
+    }
+
+    (entry_directory / "cache_metadata.json").write_text(json.dumps(metadata_record))
+    (entry_directory / "inference_data.nc").write_bytes(b"")
+    (entry_directory / "completed.json").write_text(json.dumps({
+        "cache_identity_sha256": cache_identity["cache_identity_sha256"],
+        "cache_metadata_sha256": bayesian_models.calculate_file_sha256(entry_directory / "cache_metadata.json"),
+        "inference_data_sha256": "",
+        "execution_status": "completed"
+    }))
+    (entry_directory / "diagnostics.json").write_text("{}")
+
+    _, _, miss_reason = bayesian_models.read_validated_cache_entry(
+        cache_directory = cache_directory,
+        cache_identity = cache_identity,
+        policy = policy
+    )
+
+    assert miss_reason == "CACHE_IDENTITY_MISMATCH"
+
+
+def test_aggregate_parameter_status_mismatch_rejected() -> None:
+    posterior_record = {
+        "candidate_identity": "c1",
+        "outcome": "relative_capacity",
+        "prior_scale_multiplier": 1.0,
+        "fit_status": "completed",
+        "sampler_diagnostics_status": "completed_passed"
+    }
+
+    parameter_records = [
+        {
+            "candidate_identity": "c1",
+            "outcome": "relative_capacity",
+            "prior_scale_multiplier": 1.0,
+            "fit_scope": "full_data",
+            "fold_index": None,
+            "parameter_identity": "population_intercept",
+            "rank_normalized_split_rhat": 1.05,
+            "bulk_effective_sample_size": 100.0,
+            "tail_effective_sample_size": 100.0,
+            "rhat_passed": False,
+            "bulk_ess_passed": False,
+            "tail_ess_passed": False,
+            "divergence_count": 5,
+            "minimum_bfmi": 0.1,
+            "tree_depth_hit_count": 0,
+            "diagnostic_status": "completed_failed",
+            "diagnostic_reason_code": "SAMPLER_RHAT_EXCEEDED"
+        }
+    ]
+
+    packed = bayesian_models.build_posterior_cache_diagnostics(
+        posterior_record = posterior_record,
+        parameter_diagnostic_records = parameter_records
+    )
+
+    with pytest.raises(RuntimeError, match = "aggregate sampler status conflicts with per-parameter diagnostics"):
+        bayesian_models.validate_posterior_cache_diagnostics(
+            cached_diagnostics = packed,
+            candidate_identity = "c1",
+            outcome = "relative_capacity",
+            prior_scale_multiplier = 1.0
+        )
+
+
+def test_qualification_records_multiple_failed_gates() -> None:
+    policy = load_json_object(PROJECT_POLICY_PATH)
+    candidate = build_admissible_component_candidate()
+
+    workflow = {
+        "validated_inputs": {"policy": policy},
+        "candidate_records": [
+            {
+                "candidate_identity": candidate["candidate_identity"],
+                "admissibility_status": "admissible",
+                "condition_count": str(len(candidate["condition_identities"])),
+                "sorted_condition_protocol_identities": candidate["condition_identities"]
+            }
+        ]
+    }
+
+    # Reference posterior with failed sampler diagnostics AND incomplete calibration
+    posterior_records = [
+        {
+            "candidate_identity": candidate["candidate_identity"],
+            "prior_scale_multiplier": 1.0,
+            "fit_status": "completed",
+            "sampler_diagnostics_status": "completed_failed"
+        }
+    ]
+
+    qualification = bayesian_models.qualify_reference_posteriors(
+        workflow = workflow,
+        posterior_records = posterior_records,
+        predictive_diagnostics = [],
+        validation_metrics = [],
+        calibration_records = []
+    )
+
+    failed_gates = qualification[candidate["candidate_identity"]]["failed_gates"]
+
+    assert "reference_sampler_diagnostics_failed" in failed_gates
+    assert "posterior_predictive_inventory_incomplete" in failed_gates
+    assert "grouped_validation_not_completed" in failed_gates
+    assert "condition_calibration_incomplete" in failed_gates
+
+
+# Confirming trajectory prior-sensitivity records are unavailable when the reference fit failed diagnostics
+def test_failed_sampler_diagnostics_block_trajectory_sensitivity(tmp_path: Path) -> None:
+    policy = load_json_object(PROJECT_POLICY_PATH)
+    candidate = build_admissible_component_candidate()
+
+    workflow = {
+        "validated_inputs": {"policy": policy},
+        "candidate_records": [
+            {
+                "candidate_identity": candidate["candidate_identity"],
+                "admissibility_status": "admissible"
+            }
+        ],
+        "component_candidates": [candidate]
+    }
+
+    records = bayesian_models.summarize_trajectory_prior_sensitivity(
+        workflow,
+        tmp_path,
+        posterior_cache_records = [],
+        posterior_records = [
+            {
+                "candidate_identity": candidate["candidate_identity"],
+                "prior_scale_multiplier": 1.0,
+                "sampler_diagnostics_status": "completed_failed"
+            }
+        ]
+    )
+
+    assert records
+    assert all(
+        record["sensitivity_comparison_status"] == "unavailable"
+        for record in records
+    )
+    assert all(
+        record["sensitivity_reason_code"] == "REFERENCE_POSTERIOR_DIAGNOSTICS_FAILED"
+        for record in records
+    )
+
+
+# Confirming every authorized estimand relationship is either reported or explicitly unavailable
+def test_every_authorized_relationship_receives_output_or_unavailable_record(tmp_path: Path) -> None:
+    policy = load_json_object(PROJECT_POLICY_PATH)
+
+    identification_records = [
+        {
+            "estimand_decision_identity": "e1",
+            "aging_mode": "calendar_aging",
+            "decision_scope": "condition_protocol_pair",
+            "first_condition_protocol_identity": "cond-a",
+            "second_condition_protocol_identity": "cond-b",
+            "outcome": "relative_capacity",
+            "cohort": "primary",
+            "horizon_axis": "elapsed_calendar_days",
+            "interpretation_restriction_codes": "[]"
+        }
+    ]
+
+    support_records = [
+        {
+            "aging_mode": "calendar_aging",
+            "decision_scope": "condition_protocol_pair",
+            "first_condition_protocol_identity": "cond-a",
+            "second_condition_protocol_identity": "cond-b",
+            "outcome": "relative_capacity",
+            "cohort": "primary",
+            "horizon_axis": "elapsed_calendar_days",
+            "permitted_bracketing_ranges": '[{"minimum": 0.0, "maximum": 100.0}]'
+        }
+    ]
+
+    candidate = {
+        "candidate_identity": "c",
+        "condition_identities": ["cond-a", "cond-b"],
+        "included_observations": [
+            {"condition_protocol_identity": "cond-a", "cell_identity": "cell1",
+             "horizon": 10.0, "outcome_value": 1.0, "source_identity": "s1",
+             "inside_evaluation_interval": True},
+            {"condition_protocol_identity": "cond-b", "cell_identity": "cell2",
+             "horizon": 10.0, "outcome_value": 0.99, "source_identity": "s2",
+             "inside_evaluation_interval": True}
+        ],
+        "estimand_decision_identities": ["e1"],
+        "collapsed_candidate": {
+            "outcome": "relative_capacity",
+            "cohort": "primary",
+            "horizon_axis": "elapsed_calendar_days",
+            "support_interval_minimum": "0.0",
+            "support_interval_maximum": "100.0"
+        }
+    }
+
+    workflow = {
+        "validated_inputs": {
+            "policy": policy,
+            "identification_tables": {"estimand_identification": identification_records},
+            "design_tables": {"estimand_support": support_records}
+        }
+    }
+
+    records = bayesian_models.summarize_candidate_differences(
+        None,
+        candidate,
+        workflow,
+        {"status": "not_available", "reason_code": "ANALYTICAL_QUALIFICATION_NOT_AVAILABLE"}
+    )
+
+    assert len(records) == 1
+    assert records[0]["estimand_decision_identity"] == "e1"
+    assert records[0]["analytical_status"] == "unavailable"
+    assert records[0]["analytical_reason_code"] == "REFERENCE_POSTERIOR_NOT_ANALYTICALLY_AVAILABLE"
+
+
+# Confirming a non-finite trajectory point is reported as unavailable at that horizon
+def test_nonfinite_trajectory_point_is_reported_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
+    policy = load_json_object(PROJECT_POLICY_PATH)
+    candidate = build_admissible_component_candidate()
+
+    # Fake inference_data with a posterior whose intercept values would exponentiate to infinity
+    class _FakeCoordinate:
+        def __init__(self, values):
+            self.values = values
+
+    coordinate_values = {
+        "condition_protocol_identity": list(candidate["condition_identities"]),
+        "cell_identity": [],
+        "random_effect_coefficient": ["intercept", "horizon_slope"],
+        "random_effect_coefficient_aux": ["intercept", "horizon_slope"]
+    }
+
+    class _FakeDataArray:
+        def __init__(self, values, dims):
+            self.values = values
+            self.dims = dims
+
+        def transpose(self, *target_dims):
+            axis_order = [self.dims.index(d) for d in target_dims]
+            return _FakeDataArray(
+                np.transpose(self.values, axis_order),
+                list(target_dims)
+            )
+
+        @property
+        def coords(self):
+            class _Coords:
+                def __getitem__(self, name):
+                    class _Coord:
+                        def __init__(self, vals):
+                            self.values = vals
+                    return _Coord(coordinate_values.get(name, []))
+            return _Coords()
+
+    class _FakePosterior:
+        def __init__(self):
+            self._data = {
+                "condition_intercept": _FakeDataArray(
+                    np.full((2, 2, len(candidate["condition_identities"])), 1e6),
+                    ("chain", "draw", "condition_protocol_identity")
+                ),
+                "condition_horizon_slope": _FakeDataArray(
+                    np.zeros((2, 2, len(candidate["condition_identities"]))),
+                    ("chain", "draw", "condition_protocol_identity")
+                ),
+                "cell_random_effect_cholesky": _FakeDataArray(
+                    np.zeros((2, 2, 2, 2)),
+                    ("chain", "draw", "random_effect_coefficient", "random_effect_coefficient_aux")
+                ),
+                "residual_standard_deviation": _FakeDataArray(
+                    np.ones((2, 2)), ("chain", "draw")
+                ),
+                "student_t_degrees_of_freedom": _FakeDataArray(
+                    np.full((2, 2), 5.0), ("chain", "draw")
+                )
+            }
+
+        def __getitem__(self, key):
+            return self._data[key]
+
+        def __contains__(self, key):
+            return key in self._data
+
+        def __iter__(self):
+            return iter(self._data)
+
+    class _FakeInferenceData:
+        def __init__(self):
+            self.posterior = _FakePosterior()
+
+    records = bayesian_models.summarize_candidate_trajectories(
+        inference_data = _FakeInferenceData(),
+        candidate = candidate,
+        policy = policy,
+        qualification = {"status": "available", "reason_code": "ANALYTICAL_QUALIFICATION_AVAILABLE"}
+    )
+
+    assert records
+    nonfinite_records = [
+        record for record in records
+        if record["analytical_status"] == "unavailable"
+    ]
+    assert nonfinite_records
+    assert all(
+        record["analytical_reason_code"] == "NONFINITE_TRAJECTORY_DERIVATION"
+        for record in nonfinite_records
+    )
+
+
+# Confirming that candidate_execution_status and posterior_analytical_status are distinct fields
+def test_candidate_execution_status_is_not_overwritten_by_analytical_status() -> None:
+    policy = load_json_object(PROJECT_POLICY_PATH)
+
+    workflow = {
+        "validated_inputs": {"policy": policy},
+        "candidate_records": [
+            {
+                "candidate_identity": "c1",
+                "admissibility_status": "admissible",
+                "candidate_execution_status": "admissible",
+                "posterior_analytical_status": "not_available",
+                "posterior_analytical_reason_code": "ANALYTICAL_QUALIFICATION_NOT_AVAILABLE",
+                "posterior_status_by_prior_multiplier": {},
+                "posterior_reason_codes_by_prior_multiplier": {}
+            }
+        ]
+    }
+
+    posterior_records = [
+        {
+            "candidate_identity": "c1",
+            "prior_scale_multiplier": float(
+                prior_scale_multiplier
+            ),
+            "fit_status": "completed",
+            "sampler_diagnostics_status": "completed_passed"
+        }
+        for prior_scale_multiplier in policy[
+            "sampling"
+        ][
+            "full_data_posterior_scale_multipliers"
+        ]
+    ]
+
+    qualification = {
+        "c1": {
+            "status": "available",
+            "reason_code": "ANALYTICAL_QUALIFICATION_AVAILABLE"
+        }
+    }
+
+    records = bayesian_models.build_final_candidate_records(
+        workflow,
+        qualification,
+        posterior_records
+    )
+
+    assert records[0]["candidate_execution_status"] == "fitted"
+    assert records[0]["posterior_analytical_status"] == "available"
+    assert records[0]["candidate_execution_status"] != records[0]["posterior_analytical_status"]
+
+
+# Confirming that the validate operation never initializes the PyMC runtime
+def test_validate_operation_does_not_load_pymc_runtime(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def reject_runtime(*args, **kwargs):
+        raise AssertionError("load_bayesian_runtime was called during validate.")
+
+    monkeypatch.setattr(bayesian_models, "load_bayesian_runtime", reject_runtime)
+
+    project_root = Path(__file__).resolve().parents[1]
+
+    validated_inputs = bayesian_models.load_validated_inputs(
+        feature_manifest_path = project_root / "data/processed/feature_table_manifest.json",
+        design_report_path = project_root / "data/processed/experimental_design/experimental_design_report.json",
+        identification_report_path = project_root / "data/processed/causal_identification/causal_identification_report.json",
+        descriptive_report_path = project_root / "data/processed/descriptive_models/descriptive_modeling_report.json",
+        modeling_policy_path = PROJECT_POLICY_PATH
+    )
+
+    workflow = bayesian_models.build_validation_workflow(validated_inputs)
+
+    bayesian_models.publish_validation_artifacts(
+        workflow = workflow,
+        output_directory = tmp_path / "validate_output"
+    )
+
+
+# Confirming registered source cache import never mutates the source directory
+def test_registered_source_cache_import_is_read_only(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    policy = load_json_object(PROJECT_POLICY_PATH)
+
+    import_contract = policy["cache_import_contract"]
+
+    source_identity = {
+        "policy_sha256": import_contract["source_policy_sha256"],
+        "verified_input_hashes": import_contract["verified_input_hashes"],
+        "candidate_identity": "candidate-source-readonly",
+        "operation": "prior_predictive",
+        "prior_scale_multiplier": 1.0,
+        "validation_fold_identity": None,
+        "software_environment_sha256": import_contract["source_software_environment_sha256"],
+        "implementation_sha256": import_contract["source_implementation_sha256"]
+    }
+    source_identity["cache_identity_sha256"] = bayesian_models.deterministic_identity(source_identity)
+
+    source_directory = tmp_path / source_identity["cache_identity_sha256"]
+    source_directory.mkdir(parents = True)
+    (source_directory / "cache_metadata.json").write_text('{"marker": "original"}')
+    (source_directory / "marker.txt").write_text("original")
+
+    before = {
+        path.name: path.read_bytes()
+        for path in source_directory.iterdir()
+    }
+
+    def fake_read(cache_directory, cache_identity, policy):
+        if cache_identity["cache_identity_sha256"] == source_identity["cache_identity_sha256"]:
+            return "fake_inference_data", [], None
+        return None, None, "CACHE_METADATA_MISSING"
+
+    monkeypatch.setattr(bayesian_models, "read_validated_cache_entry", fake_read)
+
+    current_identity = bayesian_models.build_cache_identity(
+        policy = policy,
+        policy_sha256 = "different_policy_sha",
+        input_hashes = import_contract["verified_input_hashes"],
+        software_environment_sha256 = "different_env_sha",
+        candidate_identity = "candidate-source-readonly",
+        operation = "prior_predictive",
+        prior_scale_multiplier = 1.0,
+        validation_fold_identity = None
+    )
+
+    inference, diagnostics, miss_reason, loaded_identity, imported = (
+        bayesian_models.read_cache_entry_with_registered_import(
+            cache_directory = tmp_path,
+            cache_identity = current_identity,
+            policy = policy
+        )
+    )
+
+    assert inference == "fake_inference_data"
+    assert imported is True
+    assert loaded_identity["cache_identity_sha256"] == source_identity["cache_identity_sha256"]
+
+    after = {
+        path.name: path.read_bytes()
+        for path in source_directory.iterdir()
+    }
+    assert before == after
+
+
+# Confirming that a cached posterior with mismatched coordinates is rejected
+def test_imported_posterior_must_match_candidate_coordinates() -> None:
+    policy = load_json_object(PROJECT_POLICY_PATH)
+    candidate = build_admissible_component_candidate()
+
+    model, _ = bayesian_models.build_pymc_model(
+        candidate = candidate,
+        policy = policy,
+        prior_scale_multiplier = 1.0
+    )
+
+    with model:
+        inference_data = pm.sample(
+            draws = 5, tune = 5, chains = 2, cores = 1,
+            random_seed = 17401, progressbar = False,
+            compute_convergence_checks = False, return_inferencedata = True
+        )
+        inference_data = pm.sample_posterior_predictive(
+            inference_data,
+            var_names = policy["posterior_artifact_contract"]["pymc_posterior_predictive_variable_names"],
+            random_seed = 17449, extend_inferencedata = True,
+            return_inferencedata = True, progressbar = False
+        )
+
+    inference_data.posterior_predictive[
+        policy["posterior_artifact_contract"]["original_scale_predictive_variable_name"]
+    ] = np.exp(
+        inference_data.posterior_predictive[
+            policy["posterior_artifact_contract"]["likelihood_variable_name"]
+        ]
+    )
+
+    truncated_candidate = dict(candidate)
+    truncated_candidate["included_observations"] = list(
+        candidate["included_observations"]
+    )[:-1]
+
+    with pytest.raises(
+        RuntimeError,
+        match = "inconsistent observation dimension|coordinate mismatch"
+    ):
+        bayesian_models.validate_posterior_inference_data(
+            inference_data = inference_data,
+            candidate = truncated_candidate,
+            policy = policy
+        )
+
+
+# Confirming that a grouped-validation posterior is checked against its training observations
+def test_imported_grouped_validation_posterior_must_match_training_data() -> None:
+    policy = load_json_object(PROJECT_POLICY_PATH)
+    candidate = build_admissible_component_candidate()
+
+    training = [
+        observation for observation in candidate["included_observations"]
+        if observation["cell_identity"] != "Stage_1/TP_k01_01"
+    ]
+
+    model, _ = bayesian_models.build_pymc_model(
+        candidate = candidate,
+        policy = policy,
+        prior_scale_multiplier = 1.0,
+        observations = training
+    )
+
+    with model:
+        inference_data = pm.sample(
+            draws = 5, tune = 5, chains = 2, cores = 1,
+            random_seed = 17401, progressbar = False,
+            compute_convergence_checks = False, return_inferencedata = True
+        )
+        inference_data = pm.sample_posterior_predictive(
+            inference_data,
+            var_names = policy["posterior_artifact_contract"]["pymc_posterior_predictive_variable_names"],
+            random_seed = 17449, extend_inferencedata = True,
+            return_inferencedata = True, progressbar = False
+        )
+
+    inference_data.posterior_predictive[
+        policy["posterior_artifact_contract"]["original_scale_predictive_variable_name"]
+    ] = np.exp(
+        inference_data.posterior_predictive[
+            policy["posterior_artifact_contract"]["likelihood_variable_name"]
+        ]
+    )
+
+    wrong_training = [
+        observation for observation in candidate["included_observations"]
+        if observation["cell_identity"] != "Stage_1/TP_k02_01"
+    ]
+
+    with pytest.raises(
+        RuntimeError,
+        match = "inconsistent observation dimension|coordinate mismatch|constant data mismatch"
+    ):
+        bayesian_models.validate_posterior_inference_data(
+            inference_data = inference_data,
+            candidate = candidate,
+            policy = policy,
+            observations = wrong_training
+        )
+
+
+# Confirming that the fit report rejects a posterior manifest with fewer entries than expected
+def test_fit_report_rejects_incomplete_posterior_manifest(tmp_path: Path) -> None:
+    policy = load_json_object(PROJECT_POLICY_PATH)
+
+    # Minimal report directory
+    report_directory = tmp_path / "fit"
+    report_directory.mkdir()
+
+    (report_directory / "posterior_draws").mkdir()
+
+    artifact_path = report_directory / "posterior_draws" / "artifact.nc"
+    artifact_path.write_bytes(b"fake netcdf bytes")
+
+    artifact_sha = bayesian_models.calculate_file_sha256(artifact_path)
+    artifact_size = artifact_path.stat().st_size
+
+    manifest = [
+        {
+            "candidate_identity": "c1",
+            "prior_scale_multiplier": 1.0,
+            "file_name": "posterior_draws/artifact.nc",
+            "sha256": artifact_sha,
+            "size_bytes": artifact_size
+        }
+    ]
+
+    expected_manifest = [
+        *manifest,
+        {
+            "candidate_identity": "c2",
+            "prior_scale_multiplier": 1.0,
+            "file_name": "posterior_draws/artifact.nc",
+            "sha256": artifact_sha,
+            "size_bytes": artifact_size
+        }
+    ]
+
+    report = {
+        "assessment_status": "completed",
+        "operation": "fit",
+        "policy": policy,
+        "policy_sha256": "a" * 64,
+        "implementation_sha256": bayesian_models.calculate_file_sha256(
+            Path(bayesian_models.__file__).resolve()
+        ),
+        "input_hashes": {},
+        "execution_plan": {},
+        "pymc_runtime_loaded": True,
+        "posterior_sampling_performed": True,
+        "prior_predictive_review_required": True,
+        "posterior_artifacts": manifest,
+        "tables": {},
+        "produced_tables": [],
+        "not_produced_tables": [],
+        "candidate_count": 0,
+        "admissible_candidate_count": 0,
+        "inadmissible_candidate_count": 0,
+        "admissibility_reason_counts": {}
+    }
+
+    report_path = report_directory / "bayesian_modeling_report.json"
+    report_path.write_text(json.dumps(report) + "\n", encoding = "utf-8")
+
+    with pytest.raises(RuntimeError, match = "does not contain every expected artifact"):
+        bayesian_models.validate_bayesian_report(
+            report_path = report_path,
+            expected_policy = policy,
+            expected_policy_sha256 = "a" * 64,
+            expected_input_hashes = {},
+            expected_candidate_records = [],
+            expected_accounting_records = [],
+            expected_fold_records = [],
+            expected_execution_plan = {},
+            expected_operation = "fit",
+            expected_fit_report_fields = {
+                "pymc_runtime_loaded": True,
+                "posterior_sampling_performed": True,
+                "prior_predictive_review_required": True,
+                "posterior_artifacts": expected_manifest
+            }
+        )
+
+
+# Confirming that the fit report rejects a missing posterior artifact on disk
+def test_fit_report_rejects_missing_posterior_artifact(tmp_path: Path) -> None:
+    policy = load_json_object(PROJECT_POLICY_PATH)
+
+    report_directory = tmp_path / "fit"
+    report_directory.mkdir()
+    (report_directory / "posterior_draws").mkdir()
+
+    # Manifest references a file that does not exist
+    manifest = [
+        {
+            "candidate_identity": "c1",
+            "prior_scale_multiplier": 1.0,
+            "file_name": "posterior_draws/does_not_exist.nc",
+            "sha256": "0" * 64,
+            "size_bytes": 0
+        }
+    ]
+
+    report = {
+        "assessment_status": "completed",
+        "operation": "fit",
+        "policy": policy,
+        "policy_sha256": "a" * 64,
+        "implementation_sha256": bayesian_models.calculate_file_sha256(
+            Path(bayesian_models.__file__).resolve()
+        ),
+        "input_hashes": {},
+        "execution_plan": {},
+        "pymc_runtime_loaded": True,
+        "posterior_sampling_performed": True,
+        "prior_predictive_review_required": True,
+        "posterior_artifacts": manifest,
+        "tables": {},
+        "produced_tables": [],
+        "not_produced_tables": [],
+        "candidate_count": 0,
+        "admissible_candidate_count": 0,
+        "inadmissible_candidate_count": 0,
+        "admissibility_reason_counts": {}
+    }
+
+    report_path = report_directory / "bayesian_modeling_report.json"
+    report_path.write_text(json.dumps(report) + "\n", encoding = "utf-8")
+
+    with pytest.raises(RuntimeError, match = "Declared Bayesian posterior artifact is missing"):
+        bayesian_models.validate_bayesian_report(
+            report_path = report_path,
+            expected_policy = policy,
+            expected_policy_sha256 = "a" * 64,
+            expected_input_hashes = {},
+            expected_candidate_records = [],
+            expected_accounting_records = [],
+            expected_fold_records = [],
+            expected_execution_plan = {},
+            expected_operation = "fit",
+            expected_fit_report_fields = {
+                "pymc_runtime_loaded": True,
+                "posterior_sampling_performed": True,
+                "prior_predictive_review_required": True,
+                "posterior_artifacts": manifest
+            }
+        )
+
+
+# Rejecting a fit report whose qualification gate-failure counts have been tampered with
+def test_fit_report_rejects_inconsistent_qualification_gate_failure_counts(tmp_path: Path) -> None:
+    policy = load_json_object(PROJECT_POLICY_PATH)
+
+    report_directory = tmp_path / "fit"
+    report_directory.mkdir()
+    (report_directory / "posterior_draws").mkdir()
+
+    empty_table_manifests = {}
+
+    for table_name, fields in bayesian_models.OUTPUT_TABLE_FIELDS.items():
+        table_path = report_directory / f"{table_name}.csv"
+        bayesian_models.write_csv_table(table_path, fields, [])
+        empty_table_manifests[table_name] = bayesian_models.build_table_manifest(
+            table_path, fields, 0
+        )
+
+    report = {
+        "assessment_status": "completed",
+        "operation": "fit",
+        "policy": policy,
+        "policy_sha256": "a" * 64,
+        "implementation_sha256": bayesian_models.calculate_file_sha256(
+            Path(bayesian_models.__file__).resolve()
+        ),
+        "input_hashes": {},
+        "execution_plan": {},
+        "pymc_runtime_loaded": True,
+        "posterior_sampling_performed": False,
+        "prior_predictive_review_required": True,
+        "posterior_artifacts": [],
+        "tables": empty_table_manifests,
+        "produced_tables": list(bayesian_models.OUTPUT_TABLE_FIELDS.keys()),
+        "not_produced_tables": [],
+        "candidate_count": 0,
+        "admissible_candidate_count": 0,
+        "inadmissible_candidate_count": 0,
+        "admissibility_reason_counts": {},
+        "qualification_gate_failure_counts": {"fabricated_gate": 7}
+    }
+
+    report_path = report_directory / "bayesian_modeling_report.json"
+    report_path.write_text(json.dumps(report) + "\n", encoding = "utf-8")
+
+    with pytest.raises(
+        RuntimeError,
+        match = "inconsistent field : qualification_gate_failure_counts"
+    ):
+        bayesian_models.validate_bayesian_report(
+            report_path = report_path,
+            expected_policy = policy,
+            expected_policy_sha256 = "a" * 64,
+            expected_input_hashes = {},
+            expected_candidate_records = [],
+            expected_accounting_records = [],
+            expected_fold_records = [],
+            expected_execution_plan = {},
+            expected_operation = "fit",
+            expected_fit_report_fields = {
+                "pymc_runtime_loaded": True,
+                "posterior_sampling_performed": False,
+                "prior_predictive_review_required": True,
+                "qualification_gate_failure_counts": {},
+                "posterior_artifacts": []
+            }
+        )
+
+
+# Confirming that the condition-calibration schema uses the registered count field names
+def test_calibration_schema_uses_registered_count_fields() -> None:
+    fields = bayesian_models.GROUPED_VALIDATION_CONDITION_CALIBRATION_FIELDS
+
+    assert "independent_cell_count" in fields
+    assert "observation_count" in fields
+    assert "test_cell_count" not in fields
+    assert "test_observation_count" not in fields
+
+
+# Confirming that trajectory and difference summaries use the policy-declared causal label
+def test_causal_interpretation_uses_registered_not_authorized_value() -> None:
+    policy = load_json_object(PROJECT_POLICY_PATH)
+
+    candidate = build_admissible_component_candidate()
+
+    # Minimal identification record and support record so summarize_candidate_differences produces output
+    identification_records = [
+        {
+            "estimand_decision_identity": "e1",
+            "aging_mode": "calendar_aging",
+            "decision_scope": "condition_protocol_pair",
+            "first_condition_protocol_identity": candidate["condition_identities"][0],
+            "second_condition_protocol_identity": candidate["condition_identities"][1],
+            "outcome": "relative_capacity",
+            "cohort": "primary",
+            "horizon_axis": "elapsed_calendar_days",
+            "interpretation_restriction_codes": "[]"
+        }
+    ]
+
+    candidate["estimand_decision_identities"] = ["e1"]
+
+    workflow = {
+        "validated_inputs": {
+            "policy": policy,
+            "identification_tables": {"estimand_identification": identification_records},
+            "design_tables": {"estimand_support": [
+                {
+                    "aging_mode": "calendar_aging",
+                    "decision_scope": "condition_protocol_pair",
+                    "first_condition_protocol_identity": candidate["condition_identities"][0],
+                    "second_condition_protocol_identity": candidate["condition_identities"][1],
+                    "outcome": "relative_capacity",
+                    "cohort": "primary",
+                    "horizon_axis": "elapsed_calendar_days",
+                    "permitted_bracketing_ranges": '[{"minimum": 0.0, "maximum": 100.0}]'
+                }
+            ]}
+        }
+    }
+
+    records = bayesian_models.summarize_candidate_differences(
+        None,
+        candidate,
+        workflow,
+        {"status": "not_available", "reason_code": "ANALYTICAL_QUALIFICATION_NOT_AVAILABLE"}
+    )
+
+    assert records
+    assert all(
+        record["causal_interpretation"] == "not_authorized"
+        for record in records
+    )
