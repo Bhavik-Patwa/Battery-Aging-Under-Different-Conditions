@@ -5,11 +5,13 @@ import json
 import math
 import os
 import platform
+import re
 import shutil
 import tempfile
 import warnings
 
 from collections import Counter, defaultdict
+from datetime import date as iso_date
 from importlib.metadata import version as distribution_version
 from pathlib import Path
 
@@ -168,6 +170,50 @@ FEATURE_IMPORTANCE_FIELDS = [
     "importance_reason_code",
     "estimate_label"
 ]
+
+REPORT_REQUIRED_TOP_LEVEL_FIELDS = {
+    "analysis_status",
+    "operation",
+    "policy_name",
+    "policy_version",
+    "policy_sha256",
+    "implementation_sha256",
+    "input_hashes",
+    "software_environment",
+    "selected_candidate_count",
+    "benchmark_candidate_count",
+    "analytical_status_counts",
+    "analytical_status_counts_by_model_family",
+    "feature_importance_status_counts",
+    "analytical_handoff",
+    "candidate_selection_uses_posterior_results",
+    "candidate_selection_uses_outcome_magnitude_direction_or_performance",
+    "candidate_selection_inherits_outcome_validity_requirements",
+    "upstream_candidate_count",
+    "planned_benchmark_count",
+    "execution_plan",
+    "performance_selected_winner_declared",
+    "feature_importance_is_causal",
+    "causal_interpretation_authorized",
+    "policy_recommendation_authorized",
+    "novel_condition_prediction_authorized",
+    "independent_validation_unit",
+    "calendar_and_cycle_models_separated",
+    "primary_and_sensitivity_cohorts_separated",
+    "elapsed_time_and_cumulative_fec_separated",
+    "dataset_stages_separated",
+    "tables"
+}
+
+EXPECTED_HANDLED_EXCEPTION_CATEGORIES = [
+    "FloatingPointError",
+    "ValueError",
+    "numpy.linalg.LinAlgError"
+]
+
+EXPECTED_UNHANDLED_EXCEPTION_ACTION = (
+    "abort_run_and_restore_prior_output"
+)
 
 
 # Representing an estimator failure that requires explicit unavailable recording
@@ -583,6 +629,151 @@ def validate_runtime_policy_bindings(policy: dict) -> None:
     ):
         raise RuntimeError("Final-model inspection contract is invalid.")
 
+    if (
+        policy[
+            "metrics"
+        ][
+            "analytical_qualification"
+        ].get(
+            "condition_calibration_complete_required"
+        )
+        is not True
+    ):
+        raise RuntimeError("Predictive analytical-qualification calibration gate is invalid.")
+
+    failure_handling_section = policy[
+        "failure_handling"
+    ]
+
+    if (
+        failure_handling_section.get(
+            "handled_exception_categories"
+        )
+        != EXPECTED_HANDLED_EXCEPTION_CATEGORIES
+    ):
+        raise RuntimeError("Predictive failure-handling handled-exception inventory is invalid.")
+
+    if (
+        failure_handling_section.get(
+            "unhandled_exception_action"
+        )
+        != EXPECTED_UNHANDLED_EXCEPTION_ACTION
+    ):
+        raise RuntimeError("Predictive failure-handling unhandled-exception action is invalid.")
+
+    reason_code_registry = policy.get(
+        "reason_code_registry"
+    )
+
+    if not isinstance(
+        reason_code_registry,
+        dict
+    ):
+        raise RuntimeError("Predictive policy is missing the reason-code registry.")
+
+    expected_reason_code_categories = {
+        "inner_validation_reason_codes",
+        "outer_execution_reason_codes",
+        "analytical_reason_codes",
+        "calibration_reason_codes",
+        "importance_reason_codes",
+        "status_vocabularies"
+    }
+
+    if set(
+        reason_code_registry
+    ) != expected_reason_code_categories:
+        raise RuntimeError("Predictive reason-code registry has an invalid schema.")
+
+    for category_name in (
+        "inner_validation_reason_codes",
+        "outer_execution_reason_codes",
+        "analytical_reason_codes",
+        "calibration_reason_codes",
+        "importance_reason_codes"
+    ):
+        category_values = reason_code_registry[
+            category_name
+        ]
+
+        if (
+            not isinstance(
+                category_values,
+                list
+            )
+            or not category_values
+            or any(
+                not isinstance(
+                    code,
+                    str
+                )
+                or not code
+                for code in (
+                    category_values
+                )
+            )
+            or len(
+                category_values
+            )
+            != len(
+                set(
+                    category_values
+                )
+            )
+        ):
+            raise RuntimeError(f"Predictive reason-code registry has an invalid category : {category_name}")
+
+    expected_status_vocabularies = {
+        "execution_status",
+        "inner_validation_status",
+        "validation_status",
+        "analytical_status",
+        "importance_status",
+        "calibration_status",
+        "prediction_status",
+        "analysis_status",
+        "analytical_handoff_status"
+    }
+
+    if set(
+        reason_code_registry[
+            "status_vocabularies"
+        ]
+    ) != expected_status_vocabularies:
+        raise RuntimeError("Predictive status-vocabulary registry has an invalid schema.")
+
+    for status_name, allowed_values in (
+        reason_code_registry[
+            "status_vocabularies"
+        ].items()
+    ):
+        if (
+            not isinstance(
+                allowed_values,
+                list
+            )
+            or not allowed_values
+            or any(
+                not isinstance(
+                    status_value,
+                    str
+                )
+                or not status_value
+                for status_value in (
+                    allowed_values
+                )
+            )
+            or len(
+                allowed_values
+            )
+            != len(
+                set(
+                    allowed_values
+                )
+            )
+        ):
+            raise RuntimeError(f"Predictive status-vocabulary registry has an invalid category : {status_name}")
+
     execution = policy[
         "execution"
     ]
@@ -837,6 +1028,7 @@ def validate_policy(policy: dict) -> None:
         "explainability",
         "final_model_inspection",
         "failure_handling",
+        "reason_code_registry",
         "execution",
         "output_contract",
         "amendment"
@@ -850,6 +1042,66 @@ def validate_policy(policy: dict) -> None:
     validate_runtime_policy_bindings(
         policy
     )
+
+    if policy[
+        "policy_name"
+    ] != "predictive_modeling_policy":
+        raise RuntimeError("Predictive policy name is invalid.")
+
+    if policy[
+        "registration_status"
+    ] not in {
+        "prospective_for_predictive_benchmark_results",
+        "prospective_model_with_result_informed_enforcement_amendment"
+    }:
+        raise RuntimeError("Predictive policy registration_status is invalid.")
+
+    if (
+        not isinstance(
+            policy[
+                "policy_version"
+            ],
+            str
+        )
+        or re.fullmatch(
+            r"[1-9]\d*\.\d+",
+            policy[
+                "policy_version"
+            ]
+        )
+        is None
+    ):
+        raise RuntimeError("Predictive policy version format is invalid.")
+
+    try:
+        iso_date.fromisoformat(
+            policy[
+                "effective_date"
+            ]
+        )
+
+    except (
+        TypeError,
+        ValueError
+    ) as exc:
+        raise RuntimeError("Predictive policy effective_date is invalid.") from exc
+
+    if (
+        not isinstance(
+            policy[
+                "previous_policy_sha256"
+            ],
+            str
+        )
+        or re.fullmatch(
+            r"[0-9a-f]{64}",
+            policy[
+                "previous_policy_sha256"
+            ]
+        )
+        is None
+    ):
+        raise RuntimeError("Predictive policy previous_policy_sha256 format is invalid.")
 
     if (
         policy[
@@ -1371,6 +1623,7 @@ def validate_policy(policy: dict) -> None:
         "all_outer_folds_completed_required": True,
         "strictly_positive_finite_predictions_required": True,
         "predictive_r_squared_must_exceed_benchmark": True,
+        "condition_calibration_complete_required": True,
         "qualified_status": "available",
         "failed_status": "diagnostic_only"
     }:
@@ -1386,7 +1639,9 @@ def validate_policy(policy: dict) -> None:
         "incomplete_outer_prediction_inventory": "unavailable",
         "partial_outer_predictions_publishable": False,
         "simpler_model_fallback_authorized": False,
-        "specification_change_after_failure_authorized": False
+        "specification_change_after_failure_authorized": False,
+        "handled_exception_categories": EXPECTED_HANDLED_EXCEPTION_CATEGORIES,
+        "unhandled_exception_action": EXPECTED_UNHANDLED_EXCEPTION_ACTION
     }:
         raise RuntimeError("Predictive failure-handling contract is invalid.")
 
@@ -1546,6 +1801,32 @@ def validate_policy(policy: dict) -> None:
         ] is not True
     ):
         raise RuntimeError("Predictive amendment record is invalid.")
+
+    if (
+        amendment[
+            "result_informed"
+        ] is False
+        and amendment[
+            "result_informed_scope"
+        ].strip()
+    ):
+        raise RuntimeError("Non-result-informed predictive amendment must not declare a scope.")
+
+    if policy[
+        "registration_status"
+    ] == "prospective_for_predictive_benchmark_results":
+        if amendment[
+            "result_informed"
+        ] is not False:
+            raise RuntimeError("Predictive policy registration_status conflicts with result-informed amendment.")
+
+    elif policy[
+        "registration_status"
+    ] == "prospective_model_with_result_informed_enforcement_amendment":
+        if amendment[
+            "result_informed"
+        ] is not True:
+            raise RuntimeError("Result-informed-enforcement registration requires result_informed amendment.")
 
     family_required_fields = {
         "elastic_net": {
@@ -4208,8 +4489,17 @@ def fit_benchmarks(selected_candidates: list[dict], workflow: dict, policy: dict
                 )
             )
 
+            calibration_gate_required = policy[
+                "metrics"
+            ][
+                "analytical_qualification"
+            ][
+                "condition_calibration_complete_required"
+            ]
+
             if (
-                has_incomplete_calibration
+                calibration_gate_required
+                and has_incomplete_calibration
                 and analytical_status
                 == policy[
                     "metrics"
@@ -5018,6 +5308,843 @@ def validate_fit_table_reconciliation(tables: dict, policy: dict) -> None:
                 raise RuntimeError("Unavailable predictive benchmark contains analytical output.")
 
 
+# Confirming one report matches the exact declared top-level schema
+def require_exact_report_schema(report: dict) -> None:
+    observed_fields = set(
+        report
+    )
+
+    missing_fields = sorted(
+        REPORT_REQUIRED_TOP_LEVEL_FIELDS.difference(
+            observed_fields
+        )
+    )
+
+    unexpected_fields = sorted(
+        observed_fields.difference(
+            REPORT_REQUIRED_TOP_LEVEL_FIELDS
+        )
+    )
+
+    if (
+        missing_fields
+        or unexpected_fields
+    ):
+        raise RuntimeError(
+            "Predictive report fields differ from the exact schema : "
+            f"missing {missing_fields} : unexpected {unexpected_fields}"
+        )
+
+
+# Confirming that the report's software-environment record matches the registered policy
+def validate_report_software_environment(report_environment: dict, policy: dict) -> None:
+    if not isinstance(
+        report_environment,
+        dict
+    ):
+        raise RuntimeError("Predictive report software_environment is not an object.")
+
+    if set(
+        report_environment
+    ) != {
+        "python_version",
+        "package_versions",
+        "environment_variables",
+        "dependency_lock_sha256"
+    }:
+        raise RuntimeError("Predictive report software_environment has an invalid schema.")
+
+    policy_environment = policy[
+        "execution"
+    ][
+        "software_environment"
+    ]
+
+    if (
+        report_environment[
+            "python_version"
+        ]
+        != policy_environment[
+            "python_version"
+        ]
+    ):
+        raise RuntimeError("Predictive report python_version does not match the policy.")
+
+    if (
+        report_environment[
+            "package_versions"
+        ]
+        != policy_environment[
+            "package_versions"
+        ]
+    ):
+        raise RuntimeError("Predictive report package_versions does not match the policy.")
+
+    if (
+        report_environment[
+            "environment_variables"
+        ]
+        != policy_environment[
+            "required_environment_variables"
+        ]
+    ):
+        raise RuntimeError("Predictive report environment_variables do not match the policy.")
+
+    if (
+        not isinstance(
+            report_environment[
+                "dependency_lock_sha256"
+            ],
+            str
+        )
+        or re.fullmatch(
+            r"[0-9a-f]{64}",
+            report_environment[
+                "dependency_lock_sha256"
+            ]
+        )
+        is None
+    ):
+        raise RuntimeError("Predictive report dependency_lock_sha256 format is invalid.")
+
+
+# Confirming that every emitted reason code and status is registered in the policy
+def validate_emitted_codes_and_statuses(tables: dict, policy: dict) -> None:
+    registry = policy[
+        "reason_code_registry"
+    ]
+
+    inner_valid = set(
+        registry[
+            "inner_validation_reason_codes"
+        ]
+    )
+
+    outer_valid = set(
+        registry[
+            "outer_execution_reason_codes"
+        ]
+    )
+
+    analytical_valid = set(
+        registry[
+            "analytical_reason_codes"
+        ]
+    )
+
+    calibration_valid = set(
+        registry[
+            "calibration_reason_codes"
+        ]
+    )
+
+    importance_valid = set(
+        registry[
+            "importance_reason_codes"
+        ]
+    )
+
+    status_vocabularies = registry[
+        "status_vocabularies"
+    ]
+
+    def check_code(candidate_code, allowed_codes, table_name, field_name) -> None:
+        if candidate_code is None or candidate_code == "":
+            return
+
+        if candidate_code not in allowed_codes:
+            raise RuntimeError(
+                f"Predictive table contains an unregistered reason code : {table_name} : {field_name} : {candidate_code}"
+            )
+
+    def check_status(status_value, status_field, table_name) -> None:
+        if status_value not in status_vocabularies[
+            status_field
+        ]:
+            raise RuntimeError(
+                f"Predictive table contains an unregistered status : {table_name} : {status_field} : {status_value}"
+            )
+
+    for record in tables["hyperparameter_selection"]:
+        check_code(
+            record["inner_validation_reason_code"],
+            inner_valid,
+            "hyperparameter_selection",
+            "inner_validation_reason_code"
+        )
+
+        check_status(
+            record["inner_validation_status"],
+            "inner_validation_status",
+            "hyperparameter_selection"
+        )
+
+    for record in tables["validation_metrics"]:
+        check_code(
+            record["validation_reason_code"],
+            outer_valid,
+            "validation_metrics",
+            "validation_reason_code"
+        )
+
+        check_code(
+            record["analytical_reason_code"],
+            analytical_valid,
+            "validation_metrics",
+            "analytical_reason_code"
+        )
+
+        check_status(
+            record["validation_status"],
+            "validation_status",
+            "validation_metrics"
+        )
+
+        check_status(
+            record["analytical_status"],
+            "analytical_status",
+            "validation_metrics"
+        )
+
+    for record in tables["validation_predictions"]:
+        check_status(
+            record["prediction_status"],
+            "prediction_status",
+            "validation_predictions"
+        )
+
+        if record["prediction_reason_code"] is not None:
+            check_code(
+                record["prediction_reason_code"],
+                outer_valid,
+                "validation_predictions",
+                "prediction_reason_code"
+            )
+
+    for record in tables["candidate_registry"]:
+        check_code(
+            record["execution_reason_code"],
+            outer_valid,
+            "candidate_registry",
+            "execution_reason_code"
+        )
+
+        check_code(
+            record["analytical_reason_code"],
+            analytical_valid,
+            "candidate_registry",
+            "analytical_reason_code"
+        )
+
+        check_status(
+            record["execution_status"],
+            "execution_status",
+            "candidate_registry"
+        )
+
+        check_status(
+            record["analytical_status"],
+            "analytical_status",
+            "candidate_registry"
+        )
+
+    for record in tables["condition_calibration"]:
+        check_code(
+            record["calibration_reason_code"],
+            calibration_valid,
+            "condition_calibration",
+            "calibration_reason_code"
+        )
+
+        check_status(
+            record["calibration_status"],
+            "calibration_status",
+            "condition_calibration"
+        )
+
+    for record in tables["feature_importance"]:
+        check_code(
+            record["importance_reason_code"],
+            importance_valid,
+            "feature_importance",
+            "importance_reason_code"
+        )
+
+        check_status(
+            record["importance_status"],
+            "importance_status",
+            "feature_importance"
+        )
+
+
+# Recomputing every reported validation metric from the published prediction table
+def validate_recomputed_metrics(metric_records: list[dict], prediction_records: list[dict]) -> None:
+    predictions_by_benchmark = defaultdict(
+        list
+    )
+
+    for record in prediction_records:
+        predictions_by_benchmark[
+            record[
+                "benchmark_identity"
+            ]
+        ].append(
+            record
+        )
+
+    comparable_metric_fields = (
+        "equal_cell_weighted_mean_absolute_error",
+        "equal_cell_weighted_root_mean_squared_error",
+        "equal_cell_weighted_median_error",
+        "equal_cell_weighted_predictive_r_squared",
+        "prediction_interval_coverage",
+        "mean_prediction_interval_width"
+    )
+
+    for metric_record in metric_records:
+        if metric_record[
+            "validation_status"
+        ] != "completed":
+            continue
+
+        benchmark_predictions = sorted(
+            predictions_by_benchmark.get(
+                metric_record[
+                    "benchmark_identity"
+                ],
+                []
+            ),
+            key = lambda record: (
+                int(
+                    record[
+                        "outer_fold_index"
+                    ]
+                ),
+                record[
+                    "condition_protocol_identity"
+                ],
+                record[
+                    "cell_identity"
+                ],
+                float(
+                    record[
+                        "horizon"
+                    ]
+                ),
+                record[
+                    "source_identity"
+                ]
+            )
+        )
+
+        if not benchmark_predictions:
+            raise RuntimeError("Completed benchmark has no published predictions.")
+
+        prediction_observations = [
+            {
+                "cell_identity": record[
+                    "cell_identity"
+                ]
+            }
+            for record in benchmark_predictions
+        ]
+
+        observed_values = np.asarray(
+            [
+                float(
+                    record[
+                        "observed_outcome"
+                    ]
+                )
+                for record in benchmark_predictions
+            ],
+            dtype = float
+        )
+
+        predicted_values = np.asarray(
+            [
+                float(
+                    record[
+                        "predicted_outcome"
+                    ]
+                )
+                for record in benchmark_predictions
+            ],
+            dtype = float
+        )
+
+        lower_values = np.asarray(
+            [
+                float(
+                    record[
+                        "prediction_interval_lower"
+                    ]
+                )
+                for record in benchmark_predictions
+            ],
+            dtype = float
+        )
+
+        upper_values = np.asarray(
+            [
+                float(
+                    record[
+                        "prediction_interval_upper"
+                    ]
+                )
+                for record in benchmark_predictions
+            ],
+            dtype = float
+        )
+
+        benchmark_values = np.asarray(
+            [
+                float(
+                    record[
+                        "benchmark_prediction"
+                    ]
+                )
+                for record in benchmark_predictions
+            ],
+            dtype = float
+        )
+
+        recomputed_metrics = equal_cell_metrics(
+            prediction_observations,
+            observed_values,
+            predicted_values,
+            lower_values,
+            upper_values,
+            benchmark_values
+        )
+
+        for field_name in comparable_metric_fields:
+            reported_value = metric_record.get(
+                field_name
+            )
+
+            recomputed_value = recomputed_metrics.get(
+                field_name
+            )
+
+            if (
+                reported_value is None
+                and recomputed_value is None
+            ):
+                continue
+
+            if (
+                reported_value is None
+                or recomputed_value is None
+            ):
+                raise RuntimeError(
+                    f"Reported metric and recomputed metric disagree on availability : "
+                    f"{metric_record['benchmark_identity']} : {field_name}"
+                )
+
+            if not math.isclose(
+                float(
+                    recomputed_value
+                ),
+                float(
+                    reported_value
+                ),
+                rel_tol = 1e-9,
+                abs_tol = 1e-12
+            ):
+                raise RuntimeError(
+                    f"Reported metric does not match recomputation from predictions : "
+                    f"{metric_record['benchmark_identity']} : {field_name}"
+                )
+
+
+# Recomputing every reported condition-calibration summary from the prediction table
+def validate_recomputed_calibration(calibration_records: list[dict], prediction_records: list[dict]) -> None:
+    predictions_by_condition = defaultdict(
+        list
+    )
+
+    for record in prediction_records:
+        predictions_by_condition[
+            (
+                record[
+                    "benchmark_identity"
+                ],
+                record[
+                    "condition_protocol_identity"
+                ]
+            )
+        ].append(
+            record
+        )
+
+    for calibration_record in calibration_records:
+        benchmark_identity = calibration_record[
+            "benchmark_identity"
+        ]
+
+        condition_identity = calibration_record[
+            "condition_protocol_identity"
+        ]
+
+        condition_predictions = predictions_by_condition.get(
+            (
+                benchmark_identity,
+                condition_identity
+            ),
+            []
+        )
+
+        if calibration_record[
+            "calibration_status"
+        ] != "completed":
+            if calibration_record.get(
+                "calibration_reason_code"
+            ) != "EMPTY_CONDITION_PREDICTION_INVENTORY":
+                raise RuntimeError(
+                    "Unavailable calibration record has an unregistered reason code : "
+                    f"{benchmark_identity} : {condition_identity}"
+                )
+
+            if condition_predictions:
+                raise RuntimeError(
+                    "Unavailable calibration record has matching predictions : "
+                    f"{benchmark_identity} : {condition_identity}"
+                )
+
+            if int(
+                calibration_record[
+                    "independent_cell_count"
+                ]
+            ) != 0:
+                raise RuntimeError(
+                    "Unavailable calibration record has nonzero cell count : "
+                    f"{benchmark_identity} : {condition_identity}"
+                )
+
+            if int(
+                calibration_record[
+                    "observation_count"
+                ]
+            ) != 0:
+                raise RuntimeError(
+                    "Unavailable calibration record has nonzero observation count : "
+                    f"{benchmark_identity} : {condition_identity}"
+                )
+
+            for summary_field in (
+                "equal_cell_weighted_mean_observed",
+                "equal_cell_weighted_mean_predicted",
+                "equal_cell_weighted_mean_error",
+                "equal_cell_weighted_mean_absolute_error",
+                "equal_cell_weighted_root_mean_squared_error"
+            ):
+                if calibration_record.get(
+                    summary_field
+                ) is not None:
+                    raise RuntimeError(
+                        "Unavailable calibration record contains a non-null summary : "
+                        f"{benchmark_identity} : {condition_identity} : {summary_field}"
+                    )
+
+            continue
+
+        if not condition_predictions:
+            raise RuntimeError("Completed condition calibration has no published predictions.")
+
+        calibration_observations = [
+            {
+                "cell_identity": record[
+                    "cell_identity"
+                ]
+            }
+            for record in condition_predictions
+        ]
+
+        observed_values = np.asarray(
+            [
+                float(
+                    record[
+                        "observed_outcome"
+                    ]
+                )
+                for record in condition_predictions
+            ],
+            dtype = float
+        )
+
+        predicted_values = np.asarray(
+            [
+                float(
+                    record[
+                        "predicted_outcome"
+                    ]
+                )
+                for record in condition_predictions
+            ],
+            dtype = float
+        )
+
+        condition_weights = build_cell_weights(
+            calibration_observations
+        )
+
+        expected_values = {
+            "equal_cell_weighted_mean_observed": float(
+                np.average(
+                    observed_values,
+                    weights = condition_weights
+                )
+            ),
+            "equal_cell_weighted_mean_predicted": float(
+                np.average(
+                    predicted_values,
+                    weights = condition_weights
+                )
+            ),
+            "equal_cell_weighted_mean_error": float(
+                np.average(
+                    predicted_values - observed_values,
+                    weights = condition_weights
+                )
+            ),
+            "equal_cell_weighted_mean_absolute_error": float(
+                np.average(
+                    np.abs(
+                        predicted_values - observed_values
+                    ),
+                    weights = condition_weights
+                )
+            ),
+            "equal_cell_weighted_root_mean_squared_error": float(
+                math.sqrt(
+                    np.average(
+                        np.square(
+                            predicted_values - observed_values
+                        ),
+                        weights = condition_weights
+                    )
+                )
+            )
+        }
+
+        for field_name, expected_value in (
+            expected_values.items()
+        ):
+            reported_value = calibration_record.get(
+                field_name
+            )
+
+            if (
+                reported_value is None
+                or not math.isclose(
+                    expected_value,
+                    float(
+                        reported_value
+                    ),
+                    rel_tol = 1e-9,
+                    abs_tol = 1e-12
+                )
+            ):
+                raise RuntimeError(
+                    f"Reported condition calibration does not match recomputation : "
+                    f"{calibration_record['benchmark_identity']} : "
+                    f"{calibration_record['condition_protocol_identity']} : {field_name}"
+                )
+
+        if int(
+            calibration_record[
+                "observation_count"
+            ]
+        ) != len(
+            condition_predictions
+        ):
+            raise RuntimeError("Reported condition calibration observation count does not match the predictions.")
+
+        if int(
+            calibration_record[
+                "independent_cell_count"
+            ]
+        ) != len(
+            {
+                record[
+                    "cell_identity"
+                ]
+                for record in condition_predictions
+            }
+        ):
+            raise RuntimeError("Reported condition calibration cell count does not match the predictions.")
+
+
+# Re-deriving every benchmark's analytical qualification from first principles
+def validate_recomputed_qualification(tables: dict, policy: dict) -> None:
+    registry_records = tables[
+        "candidate_registry"
+    ]
+
+    metric_records = tables[
+        "validation_metrics"
+    ]
+
+    calibration_records = tables[
+        "condition_calibration"
+    ]
+
+    qualification_policy = policy[
+        "metrics"
+    ][
+        "analytical_qualification"
+    ]
+
+    qualified_status = qualification_policy[
+        "qualified_status"
+    ]
+
+    failed_status = qualification_policy[
+        "failed_status"
+    ]
+
+    r_squared_must_exceed = qualification_policy[
+        "predictive_r_squared_must_exceed_benchmark"
+    ]
+
+    calibration_gate_required = qualification_policy[
+        "condition_calibration_complete_required"
+    ]
+
+    calibration_by_key = {}
+
+    for calibration_record in calibration_records:
+        calibration_key = (
+            calibration_record[
+                "benchmark_identity"
+            ],
+            calibration_record[
+                "condition_protocol_identity"
+            ]
+        )
+
+        if calibration_key in calibration_by_key:
+            raise RuntimeError("Duplicate calibration record.")
+
+        calibration_by_key[
+            calibration_key
+        ] = calibration_record
+
+    registry_by_identity = {
+        record[
+            "benchmark_identity"
+        ]: record
+        for record in registry_records
+    }
+
+    for metric_record in metric_records:
+        benchmark_identity = metric_record[
+            "benchmark_identity"
+        ]
+
+        registry_record = registry_by_identity.get(
+            benchmark_identity
+        )
+
+        if registry_record is None:
+            raise RuntimeError(f"Metric record references an unknown benchmark : {benchmark_identity}")
+
+        stored_status = metric_record[
+            "analytical_status"
+        ]
+
+        stored_reason = metric_record[
+            "analytical_reason_code"
+        ]
+
+        if (
+            registry_record[
+                "analytical_status"
+            ]
+            != stored_status
+            or registry_record[
+                "analytical_reason_code"
+            ]
+            != stored_reason
+        ):
+            raise RuntimeError(
+                f"Registry and metric records disagree on analytical qualification : {benchmark_identity}"
+            )
+
+        if registry_record[
+            "execution_status"
+        ] != "completed":
+            expected_status = "not_available"
+            expected_reason = registry_record[
+                "execution_reason_code"
+            ]
+
+        else:
+            predictive_r_squared = metric_record[
+                "equal_cell_weighted_predictive_r_squared"
+            ]
+
+            if (
+                r_squared_must_exceed
+                and (
+                    predictive_r_squared is None
+                    or float(
+                        predictive_r_squared
+                    ) <= 0
+                )
+            ):
+                expected_status = failed_status
+                expected_reason = (
+                    "PREDICTIVE_BENCHMARK_NOT_MET"
+                )
+
+            else:
+                has_incomplete_calibration = False
+
+                if calibration_gate_required:
+                    for condition_identity in registry_record[
+                        "condition_protocol_identities"
+                    ]:
+                        calibration_record = calibration_by_key.get(
+                            (
+                                benchmark_identity,
+                                condition_identity
+                            )
+                        )
+
+                        if (
+                            calibration_record is None
+                            or calibration_record[
+                                "calibration_status"
+                            ] != "completed"
+                        ):
+                            has_incomplete_calibration = True
+                            break
+
+                if has_incomplete_calibration:
+                    expected_status = failed_status
+                    expected_reason = (
+                        "INCOMPLETE_CONDITION_CALIBRATION"
+                    )
+
+                else:
+                    expected_status = qualified_status
+                    expected_reason = None
+
+        if stored_status != expected_status:
+            raise RuntimeError(
+                "Benchmark analytical qualification does not match re-derivation : "
+                f"{benchmark_identity} : expected {expected_status} : stored {stored_status}"
+            )
+
+        if stored_reason != expected_reason:
+            raise RuntimeError(
+                "Benchmark analytical reason does not match re-derivation : "
+                f"{benchmark_identity} : expected {expected_reason} : stored {stored_reason}"
+            )
+
+
 # Validating one staged or published predictive-benchmarking report
 def validate_report(report_path: Path, expected_policy: dict,
                     expected_policy_sha256: str, expected_input_hashes: dict,
@@ -5029,6 +6156,10 @@ def validate_report(report_path: Path, expected_policy: dict,
 ) -> None:
     report = load_json_object(
         report_path
+    )
+
+    require_exact_report_schema(
+        report
     )
 
     if report.get(
@@ -5114,6 +6245,24 @@ def validate_report(report_path: Path, expected_policy: dict,
     ) != expected_analytical_handoff_status:
         raise RuntimeError("Predictive report has an inconsistent analytical-handoff status.")
 
+    if (
+        report.get(
+            "planned_benchmark_count"
+        )
+        != expected_selected_candidate_count
+        * len(
+            expected_policy[
+                "model_families"
+            ]
+        )
+    ):
+        raise RuntimeError("Predictive report has an inconsistent planned-benchmark count.")
+
+    if report.get(
+        "candidate_selection_uses_posterior_results"
+    ) is not False:
+        raise RuntimeError("Predictive report incorrectly uses posterior results for candidate selection.")
+
     if report.get(
         "candidate_selection_uses_outcome_magnitude_direction_or_performance"
     ) is not False:
@@ -5157,12 +6306,40 @@ def validate_report(report_path: Path, expected_policy: dict,
     for separation_field in (
         "calendar_and_cycle_models_separated",
         "primary_and_sensitivity_cohorts_separated",
-        "elapsed_time_and_cumulative_fec_separated"
+        "elapsed_time_and_cumulative_fec_separated",
+        "dataset_stages_separated"
     ):
         if report.get(
             separation_field
         ) is not True:
             raise RuntimeError(f"Predictive report has an invalid separation declaration : {separation_field}")
+
+    analytical_handoff = report.get(
+        "analytical_handoff",
+        {}
+    )
+
+    if not isinstance(
+        analytical_handoff,
+        dict
+    ):
+        raise RuntimeError("Predictive report analytical_handoff is not an object.")
+
+    for authorization_field in (
+        "causal_interpretation_authorized",
+        "policy_use_authorized"
+    ):
+        if analytical_handoff.get(
+            authorization_field
+        ) is not False:
+            raise RuntimeError(f"Predictive report analytical_handoff incorrectly enables : {authorization_field}")
+
+    validate_report_software_environment(
+        report.get(
+            "software_environment"
+        ),
+        expected_policy
+    )
 
     table_manifest = report.get(
         "tables",
@@ -5329,6 +6506,37 @@ def validate_report(report_path: Path, expected_policy: dict,
         ):
             raise RuntimeError("Predictive fold cell counts do not reconcile.")
 
+    status_counts_for_analysis = report[
+        "analytical_status_counts"
+    ]
+
+    total_benchmarks = sum(
+        status_counts_for_analysis.values()
+    )
+
+    available_benchmarks = status_counts_for_analysis.get(
+        "available",
+        0
+    )
+
+    if expected_operation == "validate":
+        expected_analysis_status = "validated"
+
+    elif (
+        available_benchmarks
+        == total_benchmarks
+        and total_benchmarks > 0
+    ):
+        expected_analysis_status = "completed"
+
+    else:
+        expected_analysis_status = "completed_with_candidate_restrictions"
+
+    if report.get(
+        "analysis_status"
+    ) != expected_analysis_status:
+        raise RuntimeError("Predictive report has an inconsistent analysis status.")
+
     if expected_operation == "validate":
         result_tables = (
             "candidate_registry",
@@ -5349,7 +6557,35 @@ def validate_report(report_path: Path, expected_policy: dict,
 
         return
 
+    validate_emitted_codes_and_statuses(
+        verified_tables,
+        expected_policy
+    )
+
     validate_fit_table_reconciliation(
+        verified_tables,
+        expected_policy
+    )
+
+    validate_recomputed_metrics(
+        verified_tables[
+            "validation_metrics"
+        ],
+        verified_tables[
+            "validation_predictions"
+        ]
+    )
+
+    validate_recomputed_calibration(
+        verified_tables[
+            "condition_calibration"
+        ],
+        verified_tables[
+            "validation_predictions"
+        ]
+    )
+
+    validate_recomputed_qualification(
         verified_tables,
         expected_policy
     )

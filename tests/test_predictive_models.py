@@ -1018,6 +1018,7 @@ def _build_small_policy() -> dict:
                 "all_outer_folds_completed_required": True,
                 "strictly_positive_finite_predictions_required": True,
                 "predictive_r_squared_must_exceed_benchmark": True,
+                "condition_calibration_complete_required": True,
                 "qualified_status": "available",
                 "failed_status": "diagnostic_only"
             }
@@ -1278,6 +1279,7 @@ def _build_valid_reconciliation_tables() -> dict:
                 "analytical_status": "diagnostic_only",
                 "analytical_reason_code": "PREDICTIVE_BENCHMARK_NOT_MET",
                 "validation_status": "completed",
+                "equal_cell_weighted_predictive_r_squared": -0.05,
                 "test_observation_count": 2
             }
         ],
@@ -1298,11 +1300,15 @@ def _build_valid_reconciliation_tables() -> dict:
         "validation_predictions": [
             {
                 "benchmark_identity": "b1",
-                "condition_protocol_identity": "a"
+                "condition_protocol_identity": "a",
+                "prediction_status": "completed",
+                "prediction_reason_code": None
             },
             {
                 "benchmark_identity": "b1",
-                "condition_protocol_identity": "b"
+                "condition_protocol_identity": "b",
+                "prediction_status": "completed",
+                "prediction_reason_code": None
             }
         ],
         "condition_calibration": [
@@ -1343,6 +1349,92 @@ def _build_reconciliation_policy() -> dict:
                         "alpha": 0.1,
                         "l1_ratio": 0.5
                     }
+                ]
+            }
+        },
+        "metrics": {
+            "analytical_qualification": {
+                "all_outer_folds_completed_required": True,
+                "strictly_positive_finite_predictions_required": True,
+                "predictive_r_squared_must_exceed_benchmark": True,
+                "condition_calibration_complete_required": True,
+                "qualified_status": "available",
+                "failed_status": "diagnostic_only"
+            }
+        },
+        "reason_code_registry": {
+            "inner_validation_reason_codes": [
+                "INSUFFICIENT_INNER_FOLDS",
+                "EMPTY_INNER_TEST_FOLD",
+                "INNER_TEST_HORIZON_OUTSIDE_TRAINING_RANGE",
+                "ESTIMATOR_FIT_FAILED",
+                "ESTIMATOR_CONVERGENCE_WARNING",
+                "ESTIMATOR_PREDICTION_FAILED",
+                "NONFINITE_LOG_SCALE_PREDICTION",
+                "NONPOSITIVE_OR_NONFINITE_PREDICTION"
+            ],
+            "outer_execution_reason_codes": [
+                "NO_INNER_VALIDATION_CONFIGURATION_AVAILABLE",
+                "EMPTY_OUTER_TEST_FOLD",
+                "OUTER_TEST_HORIZON_OUTSIDE_TRAINING_RANGE",
+                "OUTER_PREDICTION_RECONCILIATION_FAILED",
+                "ESTIMATOR_FIT_FAILED",
+                "ESTIMATOR_CONVERGENCE_WARNING",
+                "ESTIMATOR_PREDICTION_FAILED",
+                "NONFINITE_LOG_SCALE_PREDICTION",
+                "NONPOSITIVE_OR_NONFINITE_PREDICTION",
+                "INVALID_PREDICTION_INTERVAL"
+            ],
+            "analytical_reason_codes": [
+                "PREDICTIVE_BENCHMARK_NOT_MET",
+                "INCOMPLETE_CONDITION_CALIBRATION"
+            ],
+            "calibration_reason_codes": [
+                "EMPTY_CONDITION_PREDICTION_INVENTORY"
+            ],
+            "importance_reason_codes": [
+                "MODEL_NOT_ANALYTICALLY_QUALIFIED",
+                "INVALID_FEATURE_IMPORTANCE"
+            ],
+            "status_vocabularies": {
+                "execution_status": [
+                    "completed",
+                    "unavailable"
+                ],
+                "inner_validation_status": [
+                    "completed",
+                    "unavailable"
+                ],
+                "validation_status": [
+                    "completed",
+                    "unavailable"
+                ],
+                "analytical_status": [
+                    "available",
+                    "diagnostic_only",
+                    "not_available"
+                ],
+                "importance_status": [
+                    "completed",
+                    "unavailable"
+                ],
+                "calibration_status": [
+                    "completed",
+                    "unavailable"
+                ],
+                "prediction_status": [
+                    "completed"
+                ],
+                "analysis_status": [
+                    "validated",
+                    "completed",
+                    "completed_with_candidate_restrictions"
+                ],
+                "analytical_handoff_status": [
+                    "not_evaluated",
+                    "not_ready_no_qualified_predictive_benchmarks",
+                    "ready_for_predictive_reporting",
+                    "ready_for_predictive_reporting_with_candidate_restrictions"
                 ]
             }
         }
@@ -1558,3 +1650,414 @@ def test_fit_benchmarks_downgrades_when_condition_has_no_predictions(monkeypatch
         unavailable_calibration_records[0]["calibration_reason_code"]
         == "EMPTY_CONDITION_PREDICTION_INVENTORY"
     )
+
+
+# Rejecting an invalid policy name
+def test_policy_rejects_invalid_policy_name():
+    project_root = Path(
+        __file__
+    ).resolve().parents[1]
+
+    policy = load_json_object(
+        project_root
+        / "configs"
+        / "predictive_modeling_policy.json"
+    )
+
+    policy[
+        "policy_name"
+    ] = "some_other_policy"
+
+    with pytest.raises(
+        RuntimeError,
+        match = "policy name"
+    ):
+        validate_policy(policy)
+
+
+# Rejecting an invalid registration status
+def test_policy_rejects_invalid_registration_status():
+    project_root = Path(
+        __file__
+    ).resolve().parents[1]
+
+    policy = load_json_object(
+        project_root
+        / "configs"
+        / "predictive_modeling_policy.json"
+    )
+
+    policy[
+        "registration_status"
+    ] = "retrospective_after_results"
+
+    with pytest.raises(
+        RuntimeError,
+        match = "registration_status"
+    ):
+        validate_policy(policy)
+
+
+# Rejecting a malformed policy version
+def test_policy_rejects_malformed_version():
+    project_root = Path(
+        __file__
+    ).resolve().parents[1]
+
+    policy = load_json_object(
+        project_root
+        / "configs"
+        / "predictive_modeling_policy.json"
+    )
+
+    policy[
+        "policy_version"
+    ] = "not-a-version"
+
+    with pytest.raises(
+        RuntimeError,
+        match = "version format"
+    ):
+        validate_policy(policy)
+
+
+# Rejecting a non-ISO effective date
+def test_policy_rejects_invalid_effective_date():
+    project_root = Path(
+        __file__
+    ).resolve().parents[1]
+
+    policy = load_json_object(
+        project_root
+        / "configs"
+        / "predictive_modeling_policy.json"
+    )
+
+    policy[
+        "effective_date"
+    ] = "02/11/2026"
+
+    with pytest.raises(
+        RuntimeError,
+        match = "effective_date"
+    ):
+        validate_policy(policy)
+
+
+# Rejecting a malformed previous-policy digest
+def test_policy_rejects_invalid_previous_policy_sha256():
+    project_root = Path(
+        __file__
+    ).resolve().parents[1]
+
+    policy = load_json_object(
+        project_root
+        / "configs"
+        / "predictive_modeling_policy.json"
+    )
+
+    policy[
+        "previous_policy_sha256"
+    ] = "not-a-hex-digest"
+
+    with pytest.raises(
+        RuntimeError,
+        match = "previous_policy_sha256"
+    ):
+        validate_policy(policy)
+
+
+# Rejecting a result-informed amendment without a declared scope
+def test_policy_rejects_result_informed_amendment_without_scope():
+    project_root = Path(
+        __file__
+    ).resolve().parents[1]
+
+    policy = load_json_object(
+        project_root
+        / "configs"
+        / "predictive_modeling_policy.json"
+    )
+
+    policy[
+        "amendment"
+    ][
+        "result_informed"
+    ] = True
+
+    policy[
+        "amendment"
+    ][
+        "result_informed_scope"
+    ] = ""
+
+    with pytest.raises(
+        RuntimeError,
+        match = "amendment record"
+    ):
+        validate_policy(policy)
+
+
+# Rejecting a disabled condition-calibration gate
+def test_policy_rejects_disabled_calibration_gate():
+    project_root = Path(
+        __file__
+    ).resolve().parents[1]
+
+    policy = load_json_object(
+        project_root
+        / "configs"
+        / "predictive_modeling_policy.json"
+    )
+
+    policy[
+        "metrics"
+    ][
+        "analytical_qualification"
+    ][
+        "condition_calibration_complete_required"
+    ] = False
+
+    with pytest.raises(
+        RuntimeError,
+        match = "calibration gate"
+    ):
+        validate_policy(policy)
+
+
+# Rejecting an invalid handled-exception inventory
+def test_policy_rejects_invalid_handled_exception_inventory():
+    project_root = Path(
+        __file__
+    ).resolve().parents[1]
+
+    policy = load_json_object(
+        project_root
+        / "configs"
+        / "predictive_modeling_policy.json"
+    )
+
+    policy[
+        "failure_handling"
+    ][
+        "handled_exception_categories"
+    ] = [
+        "FloatingPointError"
+    ]
+
+    with pytest.raises(
+        RuntimeError,
+        match = "failure-handling"
+    ):
+        validate_policy(policy)
+
+
+# Rejecting an invalid reason-code registry category
+def test_policy_rejects_invalid_reason_code_registry():
+    project_root = Path(
+        __file__
+    ).resolve().parents[1]
+
+    policy = load_json_object(
+        project_root
+        / "configs"
+        / "predictive_modeling_policy.json"
+    )
+
+    del policy[
+        "reason_code_registry"
+    ][
+        "analytical_reason_codes"
+    ]
+
+    with pytest.raises(
+        RuntimeError,
+        match = "reason-code registry"
+    ):
+        validate_policy(policy)
+
+
+# Rejecting an invalid status vocabulary
+def test_policy_rejects_invalid_status_vocabulary():
+    project_root = Path(
+        __file__
+    ).resolve().parents[1]
+
+    policy = load_json_object(
+        project_root
+        / "configs"
+        / "predictive_modeling_policy.json"
+    )
+
+    policy[
+        "reason_code_registry"
+    ][
+        "status_vocabularies"
+    ][
+        "analytical_status"
+    ] = []
+
+    with pytest.raises(
+        RuntimeError,
+        match = "status-vocabulary"
+    ):
+        validate_policy(policy)
+
+
+# Rejecting a purely prospective registration_status when the amendment is result-informed
+def test_policy_rejects_prospective_status_with_result_informed_amendment():
+    policy = load_json_object(
+        Path(__file__).resolve().parents[1]
+        / "configs"
+        / "predictive_modeling_policy.json"
+    )
+
+    policy["registration_status"] = (
+        "prospective_for_predictive_benchmark_results"
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match = "registration_status conflicts with result-informed"
+    ):
+        validate_policy(policy)
+
+
+# Confirming the registered diagnostic-only fixture passes re-derived qualification
+def test_validate_recomputed_qualification_accepts_consistent_diagnostic_only():
+    from scripts.run_predictive_models import (
+        validate_recomputed_qualification
+    )
+
+    validate_recomputed_qualification(
+        _build_valid_reconciliation_tables(),
+        _build_reconciliation_policy()
+    )
+
+
+# Rejecting synchronized tampering of registry and metric analytical status
+def test_validate_recomputed_qualification_rejects_synchronized_status_tamper():
+    from scripts.run_predictive_models import (
+        validate_recomputed_qualification
+    )
+
+    tables = _build_valid_reconciliation_tables()
+
+    tables["candidate_registry"][0]["analytical_status"] = "available"
+    tables["candidate_registry"][0]["analytical_reason_code"] = None
+    tables["validation_metrics"][0]["analytical_status"] = "available"
+    tables["validation_metrics"][0]["analytical_reason_code"] = None
+
+    with pytest.raises(
+        RuntimeError,
+        match = "analytical qualification does not match re-derivation"
+    ):
+        validate_recomputed_qualification(
+            tables,
+            _build_reconciliation_policy()
+        )
+
+
+# Rejecting an unregistered prediction_status
+def test_validate_emitted_codes_and_statuses_rejects_unknown_prediction_status():
+    from scripts.run_predictive_models import (
+        validate_emitted_codes_and_statuses
+    )
+
+    tables = {
+        "hyperparameter_selection": [],
+        "validation_metrics": [],
+        "candidate_registry": [],
+        "condition_calibration": [],
+        "feature_importance": [],
+        "validation_predictions": [
+            {
+                "prediction_status": "in_progress",
+                "prediction_reason_code": None
+            }
+        ]
+    }
+
+    with pytest.raises(
+        RuntimeError,
+        match = "unregistered status : validation_predictions : prediction_status"
+    ):
+        validate_emitted_codes_and_statuses(
+            tables,
+            _build_reconciliation_policy()
+        )
+
+
+# Rejecting an unavailable calibration record that has matching predictions
+def test_validate_recomputed_calibration_rejects_unavailable_with_predictions():
+    from scripts.run_predictive_models import (
+        validate_recomputed_calibration
+    )
+
+    calibration_records = [
+        {
+            "benchmark_identity": "b1",
+            "condition_protocol_identity": "a",
+            "calibration_status": "unavailable",
+            "calibration_reason_code": (
+                "EMPTY_CONDITION_PREDICTION_INVENTORY"
+            ),
+            "independent_cell_count": 0,
+            "observation_count": 0,
+            "equal_cell_weighted_mean_observed": None,
+            "equal_cell_weighted_mean_predicted": None,
+            "equal_cell_weighted_mean_error": None,
+            "equal_cell_weighted_mean_absolute_error": None,
+            "equal_cell_weighted_root_mean_squared_error": None
+        }
+    ]
+
+    prediction_records = [
+        {
+            "benchmark_identity": "b1",
+            "condition_protocol_identity": "a"
+        }
+    ]
+
+    with pytest.raises(
+        RuntimeError,
+        match = "Unavailable calibration record has matching predictions"
+    ):
+        validate_recomputed_calibration(
+            calibration_records,
+            prediction_records
+        )
+
+
+# Rejecting an unavailable calibration record with a non-null summary
+def test_validate_recomputed_calibration_rejects_unavailable_nonnull_summary():
+    from scripts.run_predictive_models import (
+        validate_recomputed_calibration
+    )
+
+    calibration_records = [
+        {
+            "benchmark_identity": "b1",
+            "condition_protocol_identity": "a",
+            "calibration_status": "unavailable",
+            "calibration_reason_code": (
+                "EMPTY_CONDITION_PREDICTION_INVENTORY"
+            ),
+            "independent_cell_count": 0,
+            "observation_count": 0,
+            "equal_cell_weighted_mean_observed": 0.95,
+            "equal_cell_weighted_mean_predicted": None,
+            "equal_cell_weighted_mean_error": None,
+            "equal_cell_weighted_mean_absolute_error": None,
+            "equal_cell_weighted_root_mean_squared_error": None
+        }
+    ]
+
+    with pytest.raises(
+        RuntimeError,
+        match = "Unavailable calibration record contains a non-null summary"
+    ):
+        validate_recomputed_calibration(
+            calibration_records,
+            []
+        )

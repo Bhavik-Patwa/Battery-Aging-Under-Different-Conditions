@@ -1,9 +1,9 @@
 {
   "policy_name": "predictive_modeling_policy",
-  "policy_version": "1.2",
-  "effective_date": "2026-11-02",
-  "previous_policy_sha256": "6a257ae4c3b6a0e50250789bd01b2bb0ba0bab4d152e354b8716c205c932b463",
-  "registration_status": "prospective_for_predictive_benchmark_results",
+  "policy_version": "1.4",
+  "effective_date": "2026-11-03",
+  "previous_policy_sha256": "3128dd14f582700c02d6b7da6cc42ba961c82ae7408d5a4db12def5d85569975",
+  "registration_status": "prospective_model_with_result_informed_enforcement_amendment",
   "scientific_scope": {
     "purpose": "Evaluate prespecified predictive benchmarks for supported longitudinal battery-aging outcomes.",
     "estimate_label": "predictive",
@@ -205,6 +205,7 @@
       "all_outer_folds_completed_required": true,
       "strictly_positive_finite_predictions_required": true,
       "predictive_r_squared_must_exceed_benchmark": true,
+      "condition_calibration_complete_required": true,
       "qualified_status": "available",
       "failed_status": "diagnostic_only"
     }
@@ -241,7 +242,109 @@
     "incomplete_outer_prediction_inventory": "unavailable",
     "partial_outer_predictions_publishable": false,
     "simpler_model_fallback_authorized": false,
-    "specification_change_after_failure_authorized": false
+    "specification_change_after_failure_authorized": false,
+    "handled_exception_categories": [
+      "FloatingPointError",
+      "ValueError",
+      "numpy.linalg.LinAlgError"
+    ],
+    "unhandled_exception_action": "abort_run_and_restore_prior_output"
+  },
+  "reason_code_registry": {
+    "inner_validation_reason_codes": [
+      "INSUFFICIENT_INNER_FOLDS",
+      "EMPTY_INNER_TEST_FOLD",
+      "INNER_TEST_HORIZON_OUTSIDE_TRAINING_RANGE",
+      "ESTIMATOR_FIT_FAILED",
+      "ESTIMATOR_CONVERGENCE_WARNING",
+      "ESTIMATOR_PREDICTION_FAILED",
+      "NONFINITE_LOG_SCALE_PREDICTION",
+      "NONPOSITIVE_OR_NONFINITE_PREDICTION"
+    ],
+    "outer_execution_reason_codes": [
+      "NO_INNER_VALIDATION_CONFIGURATION_AVAILABLE",
+      "EMPTY_OUTER_TEST_FOLD",
+      "OUTER_TEST_HORIZON_OUTSIDE_TRAINING_RANGE",
+      "OUTER_PREDICTION_RECONCILIATION_FAILED",
+      "ESTIMATOR_FIT_FAILED",
+      "ESTIMATOR_CONVERGENCE_WARNING",
+      "ESTIMATOR_PREDICTION_FAILED",
+      "NONFINITE_LOG_SCALE_PREDICTION",
+      "NONPOSITIVE_OR_NONFINITE_PREDICTION",
+      "INVALID_PREDICTION_INTERVAL"
+    ],
+    "analytical_reason_codes": [
+      "PREDICTIVE_BENCHMARK_NOT_MET",
+      "INCOMPLETE_CONDITION_CALIBRATION",
+      "NO_INNER_VALIDATION_CONFIGURATION_AVAILABLE",
+      "EMPTY_OUTER_TEST_FOLD",
+      "OUTER_TEST_HORIZON_OUTSIDE_TRAINING_RANGE",
+      "OUTER_PREDICTION_RECONCILIATION_FAILED",
+      "ESTIMATOR_FIT_FAILED",
+      "ESTIMATOR_CONVERGENCE_WARNING",
+      "ESTIMATOR_PREDICTION_FAILED",
+      "NONFINITE_LOG_SCALE_PREDICTION",
+      "NONPOSITIVE_OR_NONFINITE_PREDICTION",
+      "INVALID_PREDICTION_INTERVAL"
+    ],
+    "calibration_reason_codes": [
+      "EMPTY_CONDITION_PREDICTION_INVENTORY"
+    ],
+    "importance_reason_codes": [
+        "MODEL_NOT_ANALYTICALLY_QUALIFIED",
+        "NO_INNER_VALIDATION_CONFIGURATION_AVAILABLE",
+        "EMPTY_OUTER_TEST_FOLD",
+        "OUTER_TEST_HORIZON_OUTSIDE_TRAINING_RANGE",
+        "OUTER_PREDICTION_RECONCILIATION_FAILED",
+        "ESTIMATOR_FIT_FAILED",
+        "ESTIMATOR_CONVERGENCE_WARNING",
+        "ESTIMATOR_PREDICTION_FAILED",
+        "NONFINITE_LOG_SCALE_PREDICTION",
+        "NONPOSITIVE_OR_NONFINITE_PREDICTION",
+        "INVALID_PREDICTION_INTERVAL",
+        "INVALID_FEATURE_IMPORTANCE"
+    ],
+    "status_vocabularies": {
+      "execution_status": [
+        "completed",
+        "unavailable"
+      ],
+      "inner_validation_status": [
+        "completed",
+        "unavailable"
+      ],
+      "validation_status": [
+        "completed",
+        "unavailable"
+      ],
+      "analytical_status": [
+        "available",
+        "diagnostic_only",
+        "not_available"
+      ],
+      "importance_status": [
+        "completed",
+        "unavailable"
+      ],
+      "calibration_status": [
+        "completed",
+        "unavailable"
+      ],
+      "prediction_status": [
+        "completed"
+      ],
+      "analysis_status": [
+        "validated",
+        "completed",
+        "completed_with_candidate_restrictions"
+      ],
+      "analytical_handoff_status": [
+        "not_evaluated",
+        "not_ready_no_qualified_predictive_benchmarks",
+        "ready_for_predictive_reporting",
+        "ready_for_predictive_reporting_with_candidate_restrictions"
+      ]
+    }
   },
   "execution": {
     "random_seed": 904271,
@@ -304,9 +407,9 @@
     "analytical_handoff_required": true
   },
   "amendment": {
-    "reason": "Bind runtime-driving policy fields, software identity, complete fold provenance, unavailable inspection records and semantic artifact reconciliation before predictive fitting.",
-    "result_informed": false,
-    "result_informed_scope": "",
+    "reason": "Corrects registration-status provenance to acknowledge that the predictive model families, configurations, folds, and candidate selection were registered prospectively while the enforcement, report-schema, and reason-code-validation amendments are result-informed. Adds independent re-derivation of every benchmark's analytical qualification from predictive R-squared, calibration completeness, execution status, and registered thresholds. Validates prediction_status for every published prediction. Re-verifies that unavailable calibration records carry the registered EMPTY_CONDITION_PREDICTION_INVENTORY reason with zero counts and null summaries. No estimators, folds, hyperparameters, predictions, metrics, thresholds, model families, candidate selection, or analytical conclusions change.",
+    "result_informed": true,
+    "result_informed_scope": "Enforcement, validation, and provenance-semantic corrections only. Formally discloses the composite registration history without altering any estimator, fold, hyperparameter, prediction, metric, threshold, model family, candidate selection, or analytical conclusion.",
     "affected_analyses": [
       "predictive_benchmarking",
       "predictive_model_inspection"
