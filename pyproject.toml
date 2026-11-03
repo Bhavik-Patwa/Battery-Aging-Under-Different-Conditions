@@ -11,7 +11,8 @@ dependencies = [
     "pymc>=5.28.2,<6.0",
     "scipy>=1.16,<2.0",
     "statsmodels>=0.15,<0.16",
-    "pyyaml>=6.0,<7.0"
+    "pyyaml>=6.0,<7.0",
+    "scikit-learn>=1.9,<2.0"
 ]
 
 [dependency-groups]

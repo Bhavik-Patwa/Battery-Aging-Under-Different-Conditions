@@ -1,0 +1,316 @@
+{
+  "policy_name": "predictive_modeling_policy",
+  "policy_version": "1.2",
+  "effective_date": "2026-11-02",
+  "previous_policy_sha256": "6a257ae4c3b6a0e50250789bd01b2bb0ba0bab4d152e354b8716c205c932b463",
+  "registration_status": "prospective_for_predictive_benchmark_results",
+  "scientific_scope": {
+    "purpose": "Evaluate prespecified predictive benchmarks for supported longitudinal battery-aging outcomes.",
+    "estimate_label": "predictive",
+    "causal_interpretation_authorized": false,
+    "policy_recommendation_authorized": false,
+    "treatment_optimization_authorized": false,
+    "novel_condition_prediction_authorized": false,
+    "calendar_and_cycle_aging_separated": true,
+    "elapsed_time_and_cumulative_fec_separated": true,
+    "primary_and_sensitivity_cohorts_separated": true,
+    "dataset_stages_separated": true
+  },
+  "inputs": {
+    "required_bayesian_policy_sha256": "deaa0351a1fbaad44d6db1e510d8c6ae3cde3551d9c8ef28a97892046c59c18e",
+    "required_bayesian_report_sha256": "bd8bb27306027b2be922de798af8d01359c8f284e43d9a0248425ef71c69d7dd",
+    "required_bayesian_implementation_sha256": "3242be6f9ae38c6bbc45a91976e13f5711cef9359abac88e8ecfb5b0a0cf5f7b",
+    "bayesian_implementation_match_required": true,
+    "required_bayesian_report_operation": "fit",
+    "required_bayesian_tables": [
+      "candidate_registry",
+      "grouped_validation_folds"
+    ],
+    "candidate_selection_fields": [
+      "admissibility_status",
+      "grouped_validation_status"
+    ],
+    "candidate_selection_values": {
+      "admissibility_status": "admissible",
+      "grouped_validation_status": "available"
+    },
+    "posterior_results_used_for_candidate_selection": false,
+    "posterior_results_used_as_predictors": false,
+    "outcome_magnitude_direction_or_performance_used_for_candidate_selection": false,
+    "outcome_validity_requirements_inherited_from_upstream_admissibility": true,
+    "dependency_lock_hash_required": true
+  },
+  "observation_contract": {
+    "training_population": "all eligible positive-horizon observations from support-region member cells",
+    "evaluation_population": "eligible observations inside the authorized evaluation interval",
+    "independent_unit": "cell_identity",
+    "outcome_transformation": "natural_log",
+    "reported_prediction_scale": "original_ratio_scale",
+    "strictly_positive_predictions_required": true,
+    "complete_cumulative_fec_required": true,
+    "duplicate_observations_per_candidate_prohibited": true
+  },
+  "predictor_contract": {
+    "permitted_predictors": [
+      "scaled_horizon",
+      "condition_protocol_identity",
+      "scaled_horizon_by_condition_protocol_identity"
+    ],
+    "cell_identity_as_predictor": false,
+    "source_identity_as_predictor": false,
+    "outcome_history_as_predictor": false,
+    "laboratory_as_predictor": false,
+    "equipment_as_predictor": false,
+    "incident_reason_as_predictor": false,
+    "stage_as_predictor": false,
+    "unobserved_condition_combinations_permitted": false,
+    "horizon_scaling_source": "training_observations_only",
+    "condition_encoding": "reference_indicator",
+    "reference_condition_rule": "lexicographically_first_observed_training_condition"
+  },
+  "missing_data": {
+    "imputation_authorized": false,
+    "silent_observation_removal_authorized": false,
+    "outcome_missingness_handled_by_upstream_eligibility": true,
+    "nonfinite_predictor_action": "benchmark_unavailable"
+  },
+  "model_families": {
+    "elastic_net": {
+      "estimator": "ElasticNet",
+      "maximum_iterations": 20000,
+      "tolerance": 1e-8,
+      "configuration_rationale": "Compact prespecified regularization grid spanning predominantly L2-like and predominantly L1-like penalties at low and moderate penalty strengths.",
+      "configurations": [
+        {
+          "alpha": 0.0001,
+          "l1_ratio": 0.1
+        },
+        {
+          "alpha": 0.0001,
+          "l1_ratio": 0.9
+        },
+        {
+          "alpha": 0.01,
+          "l1_ratio": 0.1
+        },
+        {
+          "alpha": 0.01,
+          "l1_ratio": 0.9
+        }
+      ]
+    },
+    "random_forest": {
+      "estimator": "RandomForestRegressor",
+      "n_estimators": 300,
+      "max_features": 0.5,
+      "configuration_rationale": "Fixed forest size and feature subsampling; varying tree depth and leaf size distinguishes under-regularized from strongly leaf-limited ensembles.",
+      "configurations": [
+        {
+          "max_depth": null,
+          "min_samples_leaf": 1
+        },
+        {
+          "max_depth": null,
+          "min_samples_leaf": 4
+        },
+        {
+          "max_depth": 6,
+          "min_samples_leaf": 1
+        },
+        {
+          "max_depth": 6,
+          "min_samples_leaf": 4
+        }
+      ]
+    },
+    "gradient_boosting": {
+      "estimator": "GradientBoostingRegressor",
+      "loss": "squared_error",
+      "configuration_rationale": "Shallow boosting stumps with two estimator counts and two learning rates; compares conservative slow learning against faster aggressive learning at the same fixed depth.",
+      "configurations": [
+        {
+          "n_estimators": 100,
+          "learning_rate": 0.03,
+          "max_depth": 2,
+          "min_samples_leaf": 2
+        },
+        {
+          "n_estimators": 300,
+          "learning_rate": 0.03,
+          "max_depth": 2,
+          "min_samples_leaf": 2
+        },
+        {
+          "n_estimators": 100,
+          "learning_rate": 0.1,
+          "max_depth": 2,
+          "min_samples_leaf": 2
+        },
+        {
+          "n_estimators": 300,
+          "learning_rate": 0.1,
+          "max_depth": 2,
+          "min_samples_leaf": 2
+        }
+      ]
+    }
+  },
+  "weighting": {
+    "training_weight_rule": "equal_total_weight_per_cell",
+    "validation_metric_weight_rule": "equal_total_weight_per_test_cell",
+    "normalization": "mean_observation_weight_equals_one"
+  },
+  "nested_validation": {
+    "outer_folds": "reuse_registered_bayesian_grouped_validation_folds",
+    "inner_requested_fold_count": 3,
+    "inner_minimum_fold_count": 2,
+    "inner_fold_assignment_seed": 190731,
+    "inner_condition_stratification_required": true,
+    "cell_leakage_prohibited": true,
+    "same_condition_training_required": true,
+    "same_condition_horizon_coverage_required": true,
+    "selection_metric": "equal_cell_weighted_root_mean_squared_error",
+    "selection_metric_scale": "original_ratio_scale",
+    "selection_tie_breaker": "configuration_identity"
+  },
+  "prediction_intervals": {
+    "method": "inner_out_of_fold_absolute_log_residual_quantile",
+    "coverage_probability": 0.9,
+    "weighting": "equal_total_weight_per_cell",
+    "interpretation": "empirical_selection_conditioned_predictive_interval",
+    "formal_distribution_free_coverage_claim_authorized": false
+  },
+  "metric_definitions": {
+    "equal_cell_weighted_mean_absolute_error": "sum(w_i * abs(y_i - prediction_i)) / sum(w_i)",
+    "equal_cell_weighted_root_mean_squared_error": "sqrt(sum(w_i * (y_i - prediction_i)^2) / sum(w_i))",
+    "equal_cell_weighted_median_error": "weighted empirical median of prediction_i - y_i",
+    "equal_cell_weighted_predictive_r_squared": "1 - weighted_model_squared_error / weighted_same_condition_mean_benchmark_squared_error",
+    "prediction_interval_coverage": "sum(w_i * indicator(lower_i <= y_i <= upper_i)) / sum(w_i)",
+    "mean_prediction_interval_width": "sum(w_i * (upper_i - lower_i)) / sum(w_i)",
+    "weight_definition": "Each cell receives equal total weight; its weight is divided equally among its observations."
+  },
+  "metrics": {
+    "primary": [
+      "equal_cell_weighted_root_mean_squared_error",
+      "equal_cell_weighted_mean_absolute_error",
+      "equal_cell_weighted_predictive_r_squared"
+    ],
+    "secondary": [
+      "equal_cell_weighted_median_error",
+      "prediction_interval_coverage",
+      "mean_prediction_interval_width"
+    ],
+    "predictive_r_squared_benchmark": "same_condition_training_equal_cell_mean",
+    "analytical_qualification": {
+      "all_outer_folds_completed_required": true,
+      "strictly_positive_finite_predictions_required": true,
+      "predictive_r_squared_must_exceed_benchmark": true,
+      "qualified_status": "available",
+      "failed_status": "diagnostic_only"
+    }
+  },
+  "explainability": {
+    "method": "native_encoded_feature_importance",
+    "elastic_net_importance": "absolute_standardized_coefficient",
+    "tree_importance": "impurity_based_feature_importance",
+    "analytical_status_required": "available",
+    "unavailable_records_required": true,
+    "importance_values_must_be_finite_and_nonnegative": true,
+    "held_out_performance_contribution_claim_authorized": false,
+    "inspection_limitation": "Native importance describes the final fitted model encoding and is not a held-out, causal or cross-family-comparable contribution measure.",
+    "estimate_label": "predictive_model_inspection",
+    "causal_interpretation_authorized": false,
+    "counterfactual_interpretation_authorized": false,
+    "importance_comparability_across_model_families_authorized": false
+  },
+  "final_model_inspection": {
+    "purpose": "Fit one inspection-only model after nested validation without changing held-out performance estimates.",
+    "configuration_rule": "most_frequently_selected_across_outer_folds_then_configuration_identity",
+    "training_population": "all eligible positive-horizon observations from support-region member cells",
+    "analytical_status_required": "available",
+    "performance_estimation_from_final_refit_authorized": false,
+    "feature_importance_only": true,
+    "fit_failure_effect": "feature_importance_unavailable_without_changing_nested_validation_results",
+    "unavailable_record_required": true
+  },
+  "failure_handling": {
+    "estimator_convergence_warning": "unavailable",
+    "estimator_exception": "unavailable",
+    "nonfinite_prediction": "unavailable",
+    "nonpositive_prediction": "unavailable",
+    "incomplete_outer_prediction_inventory": "unavailable",
+    "partial_outer_predictions_publishable": false,
+    "simpler_model_fallback_authorized": false,
+    "specification_change_after_failure_authorized": false
+  },
+  "execution": {
+    "random_seed": 904271,
+    "parallel_worker_count": 1,
+    "byte_identical_artifacts_required": true,
+    "transactional_publication_required": true,
+    "operations": [
+      "validate",
+      "fit"
+    ],
+    "software_environment": {
+      "python_version": "3.11.16",
+      "package_versions": {
+        "joblib": "1.6.0",
+        "numpy": "2.4.6",
+        "scikit-learn": "1.9.1",
+        "scipy": "1.17.1"
+      },
+      "dependency_lock_path": "uv.lock",
+      "required_environment_variables": {
+        "PYTHONHASHSEED": "0",
+        "OMP_NUM_THREADS": "1",
+        "OPENBLAS_NUM_THREADS": "1",
+        "MKL_NUM_THREADS": "1",
+        "NUMEXPR_NUM_THREADS": "1",
+        "VECLIB_MAXIMUM_THREADS": "1",
+        "BLIS_NUM_THREADS": "1"
+      }
+    }
+  },
+  "output_contract": {
+    "tables": [
+      "candidate_registry",
+      "observation_accounting",
+      "validation_folds",
+      "hyperparameter_selection",
+      "validation_predictions",
+      "validation_metrics",
+      "condition_calibration",
+      "feature_importance"
+    ],
+    "report_file": "predictive_benchmarking_report.json",
+    "input_hashes_required": true,
+    "implementation_hash_required": true,
+    "table_hashes_required": true,
+    "schemas_required": true,
+    "row_counts_required": true,
+    "content_reconciliation_required": true,
+    "fold_cell_identities_required": true,
+    "candidate_registry_scope_fields": [
+      "support_region_identity",
+      "design_scope",
+      "sampling_design_scope",
+      "support_interval_minimum",
+      "support_interval_maximum",
+      "support_interval_lower_inclusive",
+      "support_interval_upper_inclusive",
+      "condition_protocol_identities"
+    ],
+    "analytical_handoff_required": true
+  },
+  "amendment": {
+    "reason": "Bind runtime-driving policy fields, software identity, complete fold provenance, unavailable inspection records and semantic artifact reconciliation before predictive fitting.",
+    "result_informed": false,
+    "result_informed_scope": "",
+    "affected_analyses": [
+      "predictive_benchmarking",
+      "predictive_model_inspection"
+    ],
+    "complete_rerun_required": true
+  }
+}
