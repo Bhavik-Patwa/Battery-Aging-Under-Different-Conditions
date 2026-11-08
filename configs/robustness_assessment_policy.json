@@ -1,0 +1,362 @@
+{
+  "policy_name": "robustness_assessment_policy",
+  "policy_version": "1.8",
+  "effective_date": "2026-11-07",
+  "previous_policy_sha256": "8b561004adfc664780a88bae3db7a5cde85b23c54ed5db2f65fe2a9140ba2088",
+  "registration_status": "result_informed_after_evidence_review",
+  "scientific_scope": {
+    "purpose": "Reconcile model comparison, validation performance, prior sensitivity, cell influence, evidence coverage and external-validity restrictions across completed analytical artifacts.",
+    "causal_interpretation_authorized": false,
+    "policy_recommendation_authorized": false,
+    "treatment_optimization_authorized": false,
+    "novel_condition_prediction_authorized": false,
+    "cross_stage_pooling_authorized": false,
+    "outcome_magnitude_used_for_record_selection": false,
+    "statistical_significance_used_for_classification": false,
+    "performance_selected_model_winner_authorized": false
+  },
+  "inputs": {
+    "required_report_sha256": {
+      "experimental_design": "ef71483eae21d24f82e0d4ae65e1c269caf368fa4ec3d3c0b12e88a1347062b2",
+      "causal_identification": "2eea2134acd8b458434d9cb16a477a0a212b035f3ceecf6cc9d77fd2bf8097d5",
+      "descriptive_modeling": "afa4973834e3b7a50d9387074e6b56cd6e1ea5ad826dcf0a52c94e06c0669956",
+      "bayesian_modeling": "bd8bb27306027b2be922de798af8d01359c8f284e43d9a0248425ef71c69d7dd",
+      "predictive_modeling": "f83818fe1abf04c553223d2d890f504d0077af5bc924e56d3303fe847f210eed",
+      "predictive_sensitivity": "ce52bc78ea46660797eeaec08290d76790c006ac2aea999bfecc73195c0b1c22"
+    },
+    "required_file_sha256": {
+      "data_quality_contract": "b444fbc3789f26fa4efffc89b1058c3dd207460b12989e3bdd253b778fc57ae3",
+      "feature_manifest": "7e5ef6475bdcb252896b68188262c6bae9b40a5ade729029ba5a523136002afa",
+      "predictive_modeling_policy": "eca8da89fd4d331ad7894219a8ab7930fc9212b9ce977bcddb481fa013b03d63",
+      "predictive_sensitivity_policy": "cfa62405f2e759d69d7e58e410311faa5de753ea565c8a0d68161f33e03d443b"
+    },
+    "required_feature_tables": [
+      "reference_test_features"
+    ],
+    "required_tables": {
+      "experimental_design": [
+        "estimand_support",
+        "design_identifiability",
+        "analytical_scope",
+        "stage_overlap"
+      ],
+      "causal_identification": [
+        "estimand_identification"
+      ],
+      "descriptive_modeling": [
+        "candidate_registry",
+        "validation_metrics",
+        "validation_predictions",
+        "influence_diagnostics",
+        "model_comparisons"
+      ],
+      "bayesian_modeling": [
+        "candidate_registry",
+        "grouped_validation_metrics",
+        "grouped_validation_predictions",
+        "prior_sensitivity_summaries"
+      ],
+      "predictive_modeling": [
+        "candidate_registry",
+        "validation_metrics",
+        "validation_predictions",
+        "hyperparameter_selection",
+        "condition_calibration"
+      ],
+      "predictive_sensitivity": [
+        "sensitivity_registry",
+        "validation_metrics",
+        "sensitivity_comparisons",
+        "prediction_interval_diagnostics",
+        "predictor_ablation",
+        "incident_exclusions"
+      ]
+    },
+    "table_hash_verification_required": true,
+    "schema_verification_required": true
+  },
+  "assessment_contract": {
+    "validation_dimensions": [
+      "dataset_stage",
+      "design_scope",
+      "sampling_design_scope",
+      "aging_mode",
+      "outcome",
+      "cohort",
+      "horizon_axis",
+      "model_identity"
+    ],
+    "model_family_comparison_requires_shared_candidate": true,
+    "cross_framework_agreement_requires_shared_observation": true,
+    "cell_equal_weighting_required": true,
+    "unmatched_prediction_inventory_accounting_required": true,
+    "prior_sensitivity_threshold_authorized": false,
+    "influence_threshold_authorized": false,
+    "performance_difference_threshold_authorized": false,
+    "magnitude_dependent_robustness_label_authorized": false,
+    "unavailable_evidence_must_remain_explicit": true,
+    "terminal_domain_statuses": [
+      "completed",
+      "completed_with_restrictions",
+      "diagnostic_only",
+      "unavailable",
+      "unsupported",
+      "not_authorized"
+    ],
+    "cohort_sensitivity_matching_fields": [
+      "design_scope",
+      "sampling_design_scope",
+      "aging_mode",
+      "outcome",
+      "horizon_axis",
+      "model_identity",
+      "condition_identities",
+      "support_interval_minimum",
+      "support_interval_maximum",
+      "support_interval_lower_inclusive",
+      "support_interval_upper_inclusive"
+    ],
+    "registered_status_vocabularies": {
+      "assessment_status": [
+        "completed",
+        "completed_with_restrictions",
+        "incomplete",
+        "unavailable"
+      ],
+      "domain_status": [
+        "completed",
+        "completed_with_restrictions",
+        "diagnostic_only",
+        "unavailable",
+        "unsupported",
+        "not_authorized"
+      ],
+      "comparison_status": [
+        "completed",
+        "diagnostic_only",
+        "unavailable"
+      ],
+      "importance_status": [
+        "completed",
+        "unavailable"
+      ],
+      "calibration_status": [
+        "completed",
+        "incomplete",
+        "unavailable"
+      ],
+      "prediction_agreement_status": [
+        "completed",
+        "diagnostic_only",
+        "unavailable"
+      ],
+      "cohort_comparison_status": [
+        "completed",
+        "diagnostic_only",
+        "unavailable"
+      ],
+      "boundary_assessment_status": [
+        "completed",
+        "uninformative",
+        "not_applicable"
+      ],
+      "boundary_classification": [
+        "boundary_assessment_uninformative",
+        "configuration_not_selected",
+        "selected_registered_search_boundary",
+        "selected_interior"
+      ]
+    },
+    "evidence_count_semantics": {
+      "total_evidence_count": "Number of evidence units registered for the assessment domain.",
+      "completed_evidence_count": "Evidence units evaluated with analytically available results.",
+      "restricted_evidence_count": "Evidence units evaluated but restricted, diagnostic-only, unsupported or not authorized.",
+      "unavailable_evidence_count": "Evidence units that could not be evaluated from the registered inputs.",
+      "evidence_unit": "The record type counted within the assessment domain. Counts from different evidence units must not be added."
+    },
+    "registered_reason_codes": [
+      "VALIDATION_METRICS_UNAVAILABLE",
+      "SOURCE_BENCHMARK_NOT_ANALYTICALLY_AVAILABLE",
+      "SOURCE_MODEL_NOT_ANALYTICALLY_AVAILABLE",
+      "OUT_OF_FOLD_POPULATIONS_DIFFER",
+      "NO_SHARED_VALIDATION_PREDICTIONS",
+      "PARTIAL_INVENTORY_OVERLAP",
+      "PRIOR_SENSITIVITY_COMPARISON_INCOMPLETE",
+      "CELL_DELETION_REFIT_INCOMPLETE",
+      "COHORT_COUNTERPART_UNAVAILABLE",
+      "COHORT_MATCHING_KEY_AMBIGUOUS",
+      "NO_EVIDENCE",
+      "ALL_EVIDENCE_DIAGNOSTIC_ONLY",
+      "NO_CROSS_STAGE_COMPARISONS_PRESENT",
+      "CROSS_STAGE_COMPARISONS_NOT_AUTHORIZED",
+      "NO_PRIMARY_SENSITIVITY_PAIRS",
+      "NO_MODEL_COMPARISONS",
+      "NO_PRIOR_SENSITIVITY_PAIRS",
+      "NO_INFLUENCE_RECORDS",
+      "NO_PREDICTION_PAIRS",
+      "EQUIPMENT_LAB_ALIASED",
+      "OCV_CORRECTED_RESISTANCE_PROVISIONAL",
+      "NET_STORAGE_EXPOSURE_UNAVAILABLE",
+      "HORIZON_AXES_NOT_INTERCHANGEABLE",
+      "LABORATORY_TEST_POINT_ALIASING",
+      "NO_CROSS_STAGE_COMBINATION_OVERLAP",
+      "CROSS_STAGE_TRANSPORTABILITY_NOT_ESTABLISHED",
+      "RECORDED_EQUIPMENT_ALLOCATION_RESTRICTION",
+      "REGISTERED_POLICY_RESTRICTION",
+      "POLICY_ASSERTED_NOT_DATA_DERIVED",
+      "VALIDATION_METRIC_UNAVAILABLE",
+      "FIRST_CANDIDATE_VALIDATION_UNAVAILABLE",
+      "SECOND_CANDIDATE_VALIDATION_UNAVAILABLE",
+      "PARTIAL_EVIDENCE_COVERAGE",
+      "PARTIAL_VALIDATION_COVERAGE",
+      "NO_ANALYTICALLY_AVAILABLE_VALIDATION_RECORDS",
+      "SHARED_PREDICTION_VALUE_UNAVAILABLE",
+      "VALIDATION_POPULATION_INVENTORY_UNAVAILABLE",
+      "INCIDENT_SENSITIVITY_PROXY_ONLY",
+      "STAGE_BATCH_ALIASED",
+      "BOUNDARY_ASSESSMENT_UNINFORMATIVE",
+      "CAUSAL_ML_SENSITIVITY_NOT_AUTHORIZED",
+      "CONDITION_CALIBRATION_INCOMPLETE",
+      "PREDICTION_INTERVALS_UNAVAILABLE",
+      "PREDICTION_INTERVALS_PARTIALLY_AVAILABLE",
+      "HORIZON_EVALUATION_INSUFFICIENT_OBSERVATIONS",
+      "HORIZON_EVALUATION_INSUFFICIENT_CELLS",
+      "INCIDENT_REASON_NOT_PRESENT",
+      "INCIDENT_EXCLUSION_EMPTY",
+      "INCIDENT_EXCLUSION_INSUFFICIENT_CELLS",
+      "BAYESIAN_MODEL_FORM_SENSITIVITY_NOT_PERFORMED",
+      "EMPTY_CONDITION_PREDICTION_INVENTORY",
+      "PREDICTION_INVENTORY_WITHOUT_METRIC_RECORD",
+      "SENSITIVITY_VARIANT_DIAGNOSTIC_ONLY",
+      "SENSITIVITY_VARIANT_UNAVAILABLE"
+    ],
+    "held_out_evaluation": {
+      "minimum_independent_cell_count": 2,
+      "prediction_inventory_rule": "completed_out_of_fold_predictions_only",
+      "metric_weighting": "each_cell_has_equal_total_weight",
+      "predictive_r_squared_reference": "equal_cell_weighted_observed_outcome_mean",
+      "training_data_or_fitted_model_changes_permitted": false
+    },
+    "evaluation_windows": [
+      {
+        "window_identity": "full_evaluation_inventory",
+        "operation": "retain_all_completed_held_out_predictions"
+      },
+      {
+        "window_identity": "first_follow_up_excluded",
+        "operation": "exclude_each_cells_minimum_held_out_horizon"
+      },
+      {
+        "window_identity": "terminal_observation_excluded",
+        "operation": "exclude_each_cells_maximum_held_out_horizon"
+      }
+    ],
+    "prediction_interval_groupings": [
+      "overall",
+      "validation_fold",
+      "condition_protocol"
+    ],
+    "incident_evaluation": {
+      "reason_code_sources": [
+        "archive_quality_reason_codes",
+        "quality_reason_codes"
+      ],
+      "reason_code_inventory": "all_reason_codes_observed_in_reference_test_feature_provenance",
+      "join_key": [
+        "source_identity",
+        "cell_identity"
+      ],
+      "operation": "exclude_predictions_carrying_one_reason_code_at_a_time",
+      "model_refitting_permitted": false,
+      "interpretation": "held_out_evaluation_population_sensitivity"
+    },
+    "predictive_sensitivity_evaluation": {
+      "required_variant_types": [
+        "partition",
+        "expanded_config",
+        "training_window",
+        "incident",
+        "ablation"
+      ],
+      "one_factor_at_a_time_required": true,
+      "analytical_qualification_required": true,
+      "primary_comparison_required": true,
+      "causal_interpretation_authorized": false,
+      "primary_benchmark_replacement_authorized": false
+    }
+  },
+  "assessment_domains": [
+    {"assessment_identity": "stage_stratified_performance_comparison", "evidence_source": "validation_summary", "evidence_unit": "validation_summary_record", "evaluation_rule": "stage_separated_summaries_of_completed_validation", "interpretation": "Validation summaries are reported separately by dataset stage. No exchangeability across stages is asserted."},
+    {"assessment_identity": "cross_stage_transportability", "evidence_source": "estimand_support", "evidence_unit": "cross_stage_estimand_comparison", "evaluation_rule": "cross_stage_comparison_presence", "interpretation": "Cross-stage comparison and transport are not authorized because stage and batch are aliased and exact treatment combinations do not overlap."},
+    {"assessment_identity": "cohort_sensitivity_comparison", "evidence_source": "cohort_sensitivity", "evidence_unit": "cohort_comparison_record", "evaluation_rule": "exact_match_primary_sensitivity", "interpretation": "Primary and sensitivity cohort comparisons are reported as descriptive evidence only."},
+    {"assessment_identity": "model_specification_comparison", "evidence_source": "model_family_comparisons_and_descriptive_specification_comparisons", "evidence_unit": "model_comparison_record", "evaluation_rule": "shared_candidate_pairwise_and_descriptive_template_pairwise", "interpretation": "Specification comparisons are reported as descriptive evidence. No registered stability criterion is applied."},
+    {"assessment_identity": "prior_scale_sensitivity_comparison", "evidence_source": "prior_sensitivity", "evidence_unit": "prior_sensitivity_record", "evaluation_rule": "registered_multiplier_pairs", "interpretation": "Posterior changes across registered prior scales are reported without a post-hoc stability threshold."},
+    {"assessment_identity": "cell_influence_assessment", "evidence_source": "influence_summary", "evidence_unit": "candidate_influence_record", "evaluation_rule": "per_candidate_deletion_refits", "interpretation": "Delete-one-cell refit outcomes are reported explicitly. Failed refits remain visible."},
+    {"assessment_identity": "cross_framework_prediction_comparison", "evidence_source": "prediction_agreement", "evidence_unit": "candidate_family_prediction_comparison", "evaluation_rule": "exact_shared_inventory", "interpretation": "Cross-framework predictive agreement is reported descriptively. Partial inventories are reported as diagnostic-only."},
+    {"assessment_identity": "cohort_inclusion_sensitivity", "evidence_source": "cohort_sensitivity", "evidence_unit": "cohort_comparison_record", "evaluation_rule": "exact_match_primary_sensitivity", "interpretation": "Primary-versus-sensitivity cohort comparison is a proxy for incident inclusion and does not isolate individual incident classes."},
+    {"assessment_identity": "laboratory_and_equipment_separability", "evidence_source": "design_identifiability_and_estimand_identification", "evidence_unit": "structural_limitation_category", "evaluation_rule": "structural_limitation_presence", "interpretation": "Laboratory, equipment and condition effects remain inseparable where allocation is aliased. Source-record counts remain separate in the structural-limitations table."},
+    {"assessment_identity": "alternative_outcome_definition", "evidence_source": "feature_contract", "evidence_unit": "feature_contract_limitation", "evaluation_rule": "unsupported_by_design", "interpretation": "Uncorrected resistance remains primary. OCV-corrected resistance is provisional and is not substituted as an alternative primary outcome."},
+    {"assessment_identity": "net_calendar_exposure", "evidence_source": "estimand_support", "evidence_unit": "estimand_support_record", "evaluation_rule": "unavailable_by_design", "interpretation": "Gross whole-protocol elapsed time is available; net storage exposure remains unavailable."},
+    {"assessment_identity": "batch_stability", "evidence_source": "analytical_scope", "evidence_unit": "analytical_scope_record", "evaluation_rule": "stage_batch_aliasing", "interpretation": "Battery-cell batch is structurally linked to dataset stage; independent batch sensitivity is unsupported."},
+    {"assessment_identity": "prediction_interval_diagnostics", "evidence_source": "prediction_interval_diagnostics_and_predictive_sensitivity", "evidence_unit": "interval_diagnostic_group", "evaluation_rule": "registered_held_out_interval_groups", "interpretation": "Coverage and width are reported from primary held-out predictions and registered predictive-sensitivity variants. These are empirical diagnostics, not distribution-free coverage guarantees."},
+    {"assessment_identity": "horizon_evaluation_sensitivity", "evidence_source": "horizon_evaluation_sensitivity_and_predictive_sensitivity", "evidence_unit": "candidate_horizon_sensitivity_record", "evaluation_rule": "held_out_evaluation_windows_and_training_window_refits", "interpretation": "Evaluation-window rescoring and first-or-terminal training-observation exclusion refits are reported separately. Neither is extrapolated beyond authorized support."},
+    {"assessment_identity": "incident_evaluation_sensitivity", "evidence_source": "incident_evaluation_sensitivity_and_predictive_sensitivity", "evidence_unit": "candidate_incident_sensitivity_record", "evaluation_rule": "held_out_incident_rescoring_and_reason_specific_training_exclusion_refits", "interpretation": "Evaluation-only incident exclusions and reason-specific training-exclusion refits are reported separately. They do not identify causal incident effects."},
+    {"assessment_identity": "validation_partition_refit_sensitivity", "evidence_source": "predictive_sensitivity", "evidence_unit": "alternative_partition_variant", "evaluation_rule": "deterministic_condition_stratified_cell_grouped_refits", "interpretation": "Predictive stability is evaluated under two alternative deterministic condition-stratified cell-grouped partitions with nested selection confined to each training population."},
+    {"assessment_identity": "held_out_feature_ablation", "evidence_source": "predictive_sensitivity", "evidence_unit": "predictor_ablation_variant", "evaluation_rule": "grouped_predictor_ablation_with_held_out_cell_evaluation", "interpretation": "Horizon, condition and interaction predictor groups are removed one at a time and evaluated on held-out cells. Results describe predictive dependence and are not causal."},
+    {"assessment_identity": "expanded_hyperparameter_search", "evidence_source": "predictive_sensitivity", "evidence_unit": "expanded_configuration_variant", "evaluation_rule": "nested_selection_over_registered_expanded_configuration_inventory", "interpretation": "The expanded inventory retains every primary configuration and adds prespecified intermediate settings. It evaluates search sensitivity without claiming global hyperparameter optimality."},
+    {"assessment_identity": "bayesian_model_form_sensitivity", "evidence_source": "registered_policy_restriction", "evidence_unit": "registered_assessment", "evaluation_rule": "not_assessed_without_registered_alternative_model_forms", "interpretation": "Prior-scale sensitivity does not establish robustness to alternative Bayesian trajectory or likelihood forms."},
+    {"assessment_identity": "condition_calibration_coverage", "evidence_source": "condition_calibration", "evidence_unit": "benchmark_condition_record", "evaluation_rule": "unavailable_condition_inventory", "interpretation": "Conditions without held-out predictions remain explicit external-validity restrictions."},
+    {"assessment_identity": "causal_ml_sensitivity", "evidence_source": "causal_identification", "evidence_unit": "registered_assessment", "evaluation_rule": "not_authorized_without_causal_identification", "interpretation": "Causal machine-learning sensitivity is not performed because causal identification is not established."}
+  ],
+  "external_validity_domains": [
+    {"domain_identity": "represented_cells_and_conditions", "applicability_status": "supported_with_restrictions", "boundary": "Samsung INR21700-50E cells under observed condition-protocol combinations and authorized observation ranges."},
+    {"domain_identity": "unobserved_operating_conditions", "applicability_status": "unsupported", "boundary": "No interpolation or extrapolation to unobserved joint operating-condition combinations."},
+    {"domain_identity": "other_cell_chemistries", "applicability_status": "unsupported", "boundary": "No generalization to other cell chemistries."},
+    {"domain_identity": "other_cell_formats", "applicability_status": "unsupported", "boundary": "No generalization to other cell formats."},
+    {"domain_identity": "battery_packs", "applicability_status": "unsupported", "boundary": "Cell-level results do not establish pack-level behavior."},
+    {"domain_identity": "unsupported_fast_charging", "applicability_status": "unsupported", "boundary": "No generalization to charging regimes absent from the observed design."},
+    {"domain_identity": "cross_stage_effect_transport", "applicability_status": "not_authorized", "boundary": "Dataset stages remain separate because cross-stage exchangeability is not established."},
+    {"domain_identity": "causal_treatment_effects", "applicability_status": "not_authorized", "boundary": "Observed design evidence does not establish causal identification."},
+    {"domain_identity": "operating_policy_recommendations", "applicability_status": "not_authorized", "boundary": "Associational and predictive results do not authorize treatment or operating-policy recommendations."}
+  ],
+  "execution": {
+    "byte_identical_artifacts_required": true,
+    "transactional_publication_required": true
+  },
+  "output_contract": {
+    "tables": [
+      "validation_summary",
+      "model_family_comparisons",
+      "prior_sensitivity",
+      "influence_summary",
+      "prediction_agreement",
+      "cohort_sensitivity",
+      "descriptive_specification_comparisons",
+      "structural_limitations",
+      "configuration_boundary_summary",
+      "fragility_registry",
+      "prediction_interval_diagnostics",
+      "horizon_evaluation_sensitivity",
+      "incident_evaluation_sensitivity",
+      "unsupported_condition_inventory",
+      "assessment_coverage",
+      "external_validity",
+      "predictive_sensitivity_summary"
+    ],
+    "report_file": "robustness_assessment_report.json",
+    "input_hashes_required": true,
+    "implementation_hash_required": true,
+    "table_hashes_required": true,
+    "row_counts_required": true,
+    "schemas_required": true
+  },
+  "amendment": {
+    "reason": "Records held-out prediction inventories excluded because no corresponding validation metric record exists.",
+    "result_informed": true,
+    "result_informed_scope": "Input reconciliation and exclusion provenance.",
+    "affected_analyses": [
+      "robustness_assessment"
+    ],
+    "complete_rerun_required": true
+  }
+}

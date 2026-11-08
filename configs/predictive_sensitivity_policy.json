@@ -1,0 +1,217 @@
+{
+  "policy_name": "predictive_sensitivity_policy",
+  "policy_version": "1.0",
+  "effective_date": "2026-11-06",
+  "registration_status": "result_informed_sensitivity_analysis",
+  "scientific_scope": {
+    "purpose": "Evaluate predictive stability under alternative grouped partitions, predictor ablations, training-window restrictions, documented incident exclusions and an expanded configuration inventory.",
+    "estimate_label": "predictive_sensitivity",
+    "causal_interpretation_authorized": false,
+    "policy_recommendation_authorized": false,
+    "treatment_optimization_authorized": false,
+    "performance_selected_model_winner_authorized": false,
+    "primary_benchmark_replacement_authorized": false,
+    "full_factorial_perturbation_crossing_authorized": false,
+    "dataset_stages_separated": true,
+    "calendar_and_cycle_aging_separated": true,
+    "elapsed_time_and_cumulative_fec_separated": true,
+    "primary_and_sensitivity_cohorts_separated": true
+  },
+  "inputs": {
+    "required_predictive_policy_sha256": "eca8da89fd4d331ad7894219a8ab7930fc9212b9ce977bcddb481fa013b03d63",
+    "required_predictive_report_sha256": "f83818fe1abf04c553223d2d890f504d0077af5bc924e56d3303fe847f210eed",
+    "required_feature_manifest_sha256": "7e5ef6475bdcb252896b68188262c6bae9b40a5ade729029ba5a523136002afa",
+    "required_data_quality_contract_sha256": "b444fbc3789f26fa4efffc89b1058c3dd207460b12989e3bdd253b778fc57ae3",
+    "required_bayesian_policy_sha256": "deaa0351a1fbaad44d6db1e510d8c6ae3cde3551d9c8ef28a97892046c59c18e",
+    "required_bayesian_report_sha256": "bd8bb27306027b2be922de798af8d01359c8f284e43d9a0248425ef71c69d7dd",
+    "required_design_report_sha256": "ef71483eae21d24f82e0d4ae65e1c269caf368fa4ec3d3c0b12e88a1347062b2",
+    "required_identification_report_sha256": "2eea2134acd8b458434d9cb16a477a0a212b035f3ceecf6cc9d77fd2bf8097d5",
+    "required_descriptive_report_sha256": "afa4973834e3b7a50d9387074e6b56cd6e1ea5ad826dcf0a52c94e06c0669956",
+    "required_predictive_tables": [
+      "candidate_registry",
+      "validation_folds",
+      "hyperparameter_selection",
+      "validation_metrics",
+      "validation_predictions",
+      "condition_calibration"
+    ],
+    "required_feature_tables": [
+      "reference_test_features"
+    ]
+  },
+  "partition_sensitivity": {
+    "fold_count": 3,
+    "minimum_fold_count": 2,
+    "duplicate_assignment_action": "report_uninformative",
+    "assignment_methods": [
+      {
+        "assignment_identity": "sha256_condition_stratified_a",
+        "hash_namespace": "condition_stratified_partition_a"
+      },
+      {
+        "assignment_identity": "sha256_condition_stratified_b",
+        "hash_namespace": "condition_stratified_partition_b"
+      }
+    ],
+    "cell_grouping_required": true,
+    "condition_stratification_required": true,
+    "same_condition_training_required": true,
+    "same_condition_horizon_coverage_required": true,
+    "empty_test_folds_permitted": false
+  },
+  "expanded_configuration_inventory": {
+    "elastic_net": {
+      "configuration_rationale": "Adds intermediate logarithmic penalty strength and balanced mixing while retaining every primary configuration.",
+      "configurations": [
+        {"alpha": 0.0001, "l1_ratio": 0.1},
+        {"alpha": 0.0001, "l1_ratio": 0.5},
+        {"alpha": 0.0001, "l1_ratio": 0.9},
+        {"alpha": 0.001, "l1_ratio": 0.1},
+        {"alpha": 0.001, "l1_ratio": 0.5},
+        {"alpha": 0.001, "l1_ratio": 0.9},
+        {"alpha": 0.01, "l1_ratio": 0.1},
+        {"alpha": 0.01, "l1_ratio": 0.5},
+        {"alpha": 0.01, "l1_ratio": 0.9}
+      ]
+    },
+    "random_forest": {
+      "configuration_rationale": "Adds intermediate depth and leaf-size settings while retaining every primary configuration.",
+      "configurations": [
+        {"max_depth": 6, "min_samples_leaf": 1},
+        {"max_depth": 6, "min_samples_leaf": 2},
+        {"max_depth": 6, "min_samples_leaf": 4},
+        {"max_depth": 12, "min_samples_leaf": 1},
+        {"max_depth": 12, "min_samples_leaf": 2},
+        {"max_depth": 12, "min_samples_leaf": 4},
+        {"max_depth": null, "min_samples_leaf": 1},
+        {"max_depth": null, "min_samples_leaf": 2},
+        {"max_depth": null, "min_samples_leaf": 4}
+      ]
+    },
+    "gradient_boosting": {
+      "configuration_rationale": "Adds intermediate estimator-count and learning-rate settings while retaining every primary configuration.",
+      "configurations": [
+        {"n_estimators": 100, "learning_rate": 0.03, "max_depth": 2, "min_samples_leaf": 2},
+        {"n_estimators": 100, "learning_rate": 0.06, "max_depth": 2, "min_samples_leaf": 2},
+        {"n_estimators": 100, "learning_rate": 0.1, "max_depth": 2, "min_samples_leaf": 2},
+        {"n_estimators": 200, "learning_rate": 0.03, "max_depth": 2, "min_samples_leaf": 2},
+        {"n_estimators": 200, "learning_rate": 0.06, "max_depth": 2, "min_samples_leaf": 2},
+        {"n_estimators": 200, "learning_rate": 0.1, "max_depth": 2, "min_samples_leaf": 2},
+        {"n_estimators": 300, "learning_rate": 0.03, "max_depth": 2, "min_samples_leaf": 2},
+        {"n_estimators": 300, "learning_rate": 0.06, "max_depth": 2, "min_samples_leaf": 2},
+        {"n_estimators": 300, "learning_rate": 0.1, "max_depth": 2, "min_samples_leaf": 2}
+      ]
+    }
+  },
+  "training_window_sensitivity": {
+    "variants": [
+      {
+        "variant_identity": "first_observation_excluded",
+        "operation": "exclude_minimum_horizon_per_cell"
+      },
+      {
+        "variant_identity": "terminal_observation_excluded",
+        "operation": "exclude_maximum_horizon_per_cell"
+      }
+    ],
+    "fixed_primary_fold_configuration_required": true,
+    "retuning_authorized": false,
+    "evaluation_population_rule": "same_condition_horizons_inside_restricted_training_support",
+    "comparison_inventory_rule": "exact_shared_held_out_observations",
+    "prediction_interval_calibration": "inner_grouped_out_of_fold_residuals"
+  },
+  "incident_sensitivity": {
+    "reason_code_sources": [
+      "archive_quality_reason_codes",
+      "quality_reason_codes"
+    ],
+    "join_key": [
+      "source_identity",
+      "cell_identity"
+    ],
+    "candidate_reason_inventory_rule": "all_reason_codes_observed_in_candidate",
+    "inadequately_supported_reason_action": "report_unavailable",
+    "minimum_excluded_independent_cell_count": 2,
+    "minimum_retained_independent_cell_count": 6,
+    "fixed_primary_fold_configuration_required": true,
+    "retuning_authorized": false,
+    "empty_or_inadequately_supported_exclusions_reported_unavailable": true,
+    "eligibility_required_in_every_outer_fold": true,
+    "evaluation_population_rule": "unchanged_primary_held_out_observations",
+    "comparison_inventory_rule": "exact_shared_held_out_observations",
+    "prediction_interval_calibration": "inner_grouped_out_of_fold_residuals"
+  },
+  "predictor_ablation": {
+    "groups": [
+      "horizon_main_and_interactions",
+      "condition_main_and_interactions",
+      "horizon_condition_interactions"
+    ],
+    "unavailable_group_action": "report_unavailable",
+    "comparison_inventory_rule": "exact_shared_held_out_observations",
+    "fixed_primary_fold_configuration_required": true,
+    "held_out_evaluation_required": true,
+    "retuning_authorized": false,
+    "inner_validation_uses_ablated_predictor_matrix": true,
+    "causal_interpretation_authorized": false,
+    "cross_family_magnitude_comparison_authorized": false
+  },
+  "metric_contract": {
+    "independent_unit": "cell_identity",
+    "weighting": "equal_total_weight_per_cell",
+    "primary_metric": "equal_cell_weighted_root_mean_squared_error",
+    "secondary_metrics": [
+      "equal_cell_weighted_mean_absolute_error",
+      "equal_cell_weighted_predictive_r_squared"
+    ],
+    "additional_metrics": [
+      "equal_cell_weighted_prediction_interval_coverage",
+      "equal_cell_weighted_mean_prediction_interval_width"
+    ],
+    "same_condition_mean_benchmark_required": true,
+    "strictly_positive_finite_predictions_required": true,
+    "condition_calibration_required": true,
+    "primary_comparison_requires_exact_shared_inventory": true,
+    "partial_outer_predictions_publishable": false,
+    "interval_probability": 0.9,
+    "minimum_interval_diagnostic_independent_cell_count": 2,
+    "analytical_qualification": {
+      "predictive_r_squared_must_exceed_benchmark": true,
+      "condition_calibration_complete_required": true,
+      "qualified_status": "available",
+      "failed_status": "diagnostic_only",
+      "unavailable_status": "not_available"
+    }
+  },
+  "execution": {
+    "random_seed": 904271,
+    "parallel_worker_count": 1,
+    "byte_identical_artifacts_required": true,
+    "transactional_publication_required": true,
+    "operations": [
+      "validate",
+      "fit"
+    ]
+  },
+  "output_contract": {
+    "report_file": "predictive_sensitivity_report.json",
+    "tables": [
+      "sensitivity_registry",
+      "validation_folds",
+      "configuration_selection",
+      "validation_predictions",
+      "validation_metrics",
+      "sensitivity_comparisons",
+      "condition_calibration",
+      "predictor_ablation",
+      "incident_exclusions",
+      "prediction_interval_diagnostics"
+    ],
+    "input_hashes_required": true,
+    "implementation_hash_required": true,
+    "table_hashes_required": true,
+    "row_counts_required": true,
+    "schemas_required": true,
+    "content_reconciliation_required": true
+  }
+}
