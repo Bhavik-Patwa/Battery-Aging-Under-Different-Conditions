@@ -1,15 +1,20 @@
-FROM python:3.11.16-slim-bookworm@sha256:a36c24f9cbdf4fd0f52d67f0823eeac19c2028c637cecc392d97f980d4fec56b
+FROM python:3.11.18-slim-trixie@sha256:07d4824036af339fa1b6ef769cc99d9c10a141769538b52b3b597c84f7a7b535
 
 ARG SOURCE_REVISION="unavailable"
 ARG SOURCE_URL="https://github.com/Bhavik-Patwa/Adaptive-Battery-Aging-Policy"
 ARG EVIDENCE_POLICY_SHA256="unavailable"
+
+RUN printf '%s' "$SOURCE_REVISION" \
+        | grep --extended-regexp --quiet '^[0-9a-f]{40}$' \
+    && printf '%s' "$EVIDENCE_POLICY_SHA256" \
+        | grep --extended-regexp --quiet '^[0-9a-f]{64}$' \
+    && test -n "$SOURCE_URL"
 
 LABEL org.opencontainers.image.title="Battery Aging Evidence Explorer" \
     org.opencontainers.image.description="Read-only reporting interface for validated battery-aging evidence." \
     org.opencontainers.image.source="${SOURCE_URL}" \
     org.opencontainers.image.revision="${SOURCE_REVISION}" \
     org.opencontainers.image.version="${SOURCE_REVISION}" \
-    org.opencontainers.image.licenses="MIT" \
     org.opencontainers.image.vendor="Bhavik Patwa" \
     org.opencontainers.image.evidence-policy-sha256="${EVIDENCE_POLICY_SHA256}"
 

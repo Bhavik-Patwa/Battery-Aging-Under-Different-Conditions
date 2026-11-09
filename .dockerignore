@@ -9,3 +9,6 @@ htmlcov
 data
 *.log
 gha-creds-*.json
+vulnerabilities.json
+evidence_dashboard_artifacts.tar.gz
+*.tgz

@@ -15,7 +15,7 @@ jobs:
   release:
     if: github.ref == 'refs/heads/main'
     environment: evidence-release
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
 
     env:
@@ -27,6 +27,7 @@ jobs:
       EVIDENCE_BUNDLE_SHA256: ${{ vars.EVIDENCE_BUNDLE_SHA256 }}
       IMAGE_NAME: battery-aging-evidence-dashboard
       LOCAL_IMAGE: battery-aging-evidence-dashboard:release
+      TRIVY_IMAGE: ghcr.io/aquasecurity/trivy:0.76.1@sha256:790fd66d1697395d8693d1acaa1ea702406a20f109b6fc7bac8db623eca6c06c
 
     steps:
       - name: Check out repository
@@ -291,7 +292,7 @@ jobs:
             --rm \
             --volume "$RUNNER_TEMP:/scan-output" \
             --volume /var/run/docker.sock:/var/run/docker.sock \
-            aquasec/trivy:0.57.1 \
+            "$TRIVY_IMAGE" \
               image \
               --format json \
               --output /scan-output/vulnerabilities.json \
@@ -355,6 +356,9 @@ jobs:
               ),
               "image_reference": os.environ[
                   "LOCAL_IMAGE"
+              ],
+              "scanner_reference": os.environ[
+                  "TRIVY_IMAGE"
               ]
           }
 
@@ -387,6 +391,17 @@ jobs:
                   "Release image contains critical vulnerabilities."
               )
           PY
+
+      - name: Preserve vulnerability assessment
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: vulnerability-assessment-${{ github.sha }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/vulnerabilities.json
+            ${{ runner.temp }}/vulnerability_summary.json
+          if-no-files-found: error
+          retention-days: 90
 
       - name: Authenticate Docker to Artifact Registry
         run: |

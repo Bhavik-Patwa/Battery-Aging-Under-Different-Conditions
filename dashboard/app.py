@@ -207,7 +207,7 @@ def render_boundaries(store: ArtifactStore) -> None:
             ]
         ),
         hide_index = True,
-        use_container_width = True
+        width = "stretch"
     )
 
     st.subheader(
@@ -247,7 +247,7 @@ def render_boundaries(store: ArtifactStore) -> None:
             ]
         ],
         hide_index = True,
-        use_container_width = True
+        width = "stretch"
     )
 
 
@@ -296,7 +296,7 @@ def render_experimental_support(store: ArtifactStore) -> None:
             visible_columns
         ],
         hide_index = True,
-        use_container_width = True
+        width = "stretch"
     )
 
     st.subheader(
@@ -353,7 +353,7 @@ def render_experimental_support(store: ArtifactStore) -> None:
             ]
         ],
         hide_index = True,
-        use_container_width = True
+        width = "stretch"
     )
 
 
@@ -463,7 +463,7 @@ def render_trajectories(store: ArtifactStore) -> None:
                 ]
             ],
             hide_index = True,
-            use_container_width = True
+            width = "stretch"
         )
 
         return
@@ -578,7 +578,7 @@ def render_trajectories(store: ArtifactStore) -> None:
             ]
         ],
         hide_index = True,
-        use_container_width = True
+        width = "stretch"
     )
 
     st.subheader(
@@ -643,7 +643,7 @@ def render_trajectories(store: ArtifactStore) -> None:
             ]
         ],
         hide_index = True,
-        use_container_width = True
+        width = "stretch"
     )
 
 
@@ -744,7 +744,7 @@ def render_predictive_evidence(store: ArtifactStore) -> None:
             ]
         ],
         hide_index = True,
-        use_container_width = True
+        width = "stretch"
     )
 
     st.caption(
@@ -824,7 +824,7 @@ def render_predictive_evidence(store: ArtifactStore) -> None:
             ]
         ],
         hide_index = True,
-        use_container_width = True
+        width = "stretch"
     )
 
 
@@ -859,7 +859,7 @@ def render_robustness(store: ArtifactStore) -> None:
     st.dataframe(
         coverage,
         hide_index = True,
-        use_container_width = True
+        width = "stretch"
     )
 
     st.subheader(
@@ -930,7 +930,7 @@ def render_robustness(store: ArtifactStore) -> None:
             ]
         ],
         hide_index = True,
-        use_container_width = True
+        width = "stretch"
     )
 
     st.subheader(
@@ -942,7 +942,7 @@ def render_robustness(store: ArtifactStore) -> None:
             "structural_limitations"
         ),
         hide_index = True,
-        use_container_width = True
+        width = "stretch"
     )
 
     st.subheader(
@@ -954,7 +954,7 @@ def render_robustness(store: ArtifactStore) -> None:
             "external_validity"
         ),
         hide_index = True,
-        use_container_width = True
+        width = "stretch"
     )
 
     fragility = store.table(
@@ -1002,7 +1002,7 @@ def render_robustness(store: ArtifactStore) -> None:
     st.dataframe(
         fragility_summary,
         hide_index = True,
-        use_container_width = True
+        width = "stretch"
     )
 
 
@@ -1047,7 +1047,7 @@ def render_provenance(store: ArtifactStore, validation_summary: dict) -> None:
             store.provenance_records()
         ),
         hide_index = True,
-        use_container_width = True
+        width = "stretch"
     )
 
 
