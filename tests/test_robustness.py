@@ -3752,6 +3752,7 @@ def test_boundary_status_vocabulary_is_enforced() -> None:
 
 
 # Confirming regenerated coverage evidence counts reconcile in every row
+@pytest.mark.production_artifacts
 def test_coverage_evidence_counts_reconcile_per_row() -> None:
     import csv
 
@@ -4137,6 +4138,7 @@ def test_duplicate_validation_metric_identities_are_rejected() -> None:
 
 
 # Confirming the handoff and scientific statuses must agree
+@pytest.mark.production_artifacts
 def test_handoff_status_must_match_scientific_status() -> None:
     report_path = (
         PROJECT_ROOT

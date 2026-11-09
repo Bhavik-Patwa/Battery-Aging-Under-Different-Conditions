@@ -17,16 +17,18 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v7
+        uses: astral-sh/setup-uv@94527f2e458b27549849d47d273a16bec83a01e9 # v7
         with:
           version: "0.12.16"
           enable-cache: true
 
       - name: Install Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.11.16"
 
@@ -46,7 +48,38 @@ jobs:
         run: .venv/bin/python -m pytest -q -m "not production_artifacts"
 
       - name: Build release container
-        run: docker build --file Dockerfile.dashboard --tag battery-aging-evidence-dashboard:test .
+        run: |
+          policy_sha256="$(
+            sha256sum configs/evidence_dashboard_policy.json \
+              | cut -d' ' -f1
+          )"
+
+          docker build \
+            --file Dockerfile.dashboard \
+            --build-arg SOURCE_REVISION="$GITHUB_SHA" \
+            --build-arg SOURCE_URL="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
+            --build-arg EVIDENCE_POLICY_SHA256="$policy_sha256" \
+            --tag battery-aging-evidence-dashboard:test \
+            .
+
+      - name: Verify release metadata
+        run: |
+          policy_sha256="$(
+            sha256sum configs/evidence_dashboard_policy.json \
+              | cut -d' ' -f1
+          )"
+
+          test "$(
+            docker inspect \
+              --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' \
+              battery-aging-evidence-dashboard:test
+          )" = "$GITHUB_SHA"
+
+          test "$(
+            docker inspect \
+              --format '{{ index .Config.Labels "org.opencontainers.image.evidence-policy-sha256" }}' \
+              battery-aging-evidence-dashboard:test
+          )" = "$policy_sha256"
 
       - name: Build synthetic runtime evidence
         run: |

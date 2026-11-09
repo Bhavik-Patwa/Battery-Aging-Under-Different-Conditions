@@ -434,6 +434,7 @@ def test_convert_numeric_columns_preserves_unavailable_values():
 
 
 # Validating the production inventory when local artifacts are present
+@pytest.mark.production_artifacts
 def test_registered_policy_validates_current_artifacts():
     project_root = Path(__file__).resolve().parents[1]
     artifact_root = (
@@ -571,6 +572,7 @@ def test_policy_rejects_noncanonical_report_digest(tmp_path: Path):
 
 
 # Rendering every registered view against current artifacts when available
+@pytest.mark.production_artifacts
 def test_registered_application_renders_current_artifacts():
     project_root = Path(__file__).resolve().parents[1]
     artifact_root = (

@@ -8,3 +8,4 @@ htmlcov
 .env
 data
 *.log
+gha-creds-*.json

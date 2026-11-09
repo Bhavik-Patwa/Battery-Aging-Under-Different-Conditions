@@ -1,5 +1,18 @@
 FROM python:3.11.16-slim-bookworm@sha256:a36c24f9cbdf4fd0f52d67f0823eeac19c2028c637cecc392d97f980d4fec56b
 
+ARG SOURCE_REVISION="unavailable"
+ARG SOURCE_URL="https://github.com/Bhavik-Patwa/Adaptive-Battery-Aging-Policy"
+ARG EVIDENCE_POLICY_SHA256="unavailable"
+
+LABEL org.opencontainers.image.title="Battery Aging Evidence Explorer" \
+    org.opencontainers.image.description="Read-only reporting interface for validated battery-aging evidence." \
+    org.opencontainers.image.source="${SOURCE_URL}" \
+    org.opencontainers.image.revision="${SOURCE_REVISION}" \
+    org.opencontainers.image.version="${SOURCE_REVISION}" \
+    org.opencontainers.image.licenses="MIT" \
+    org.opencontainers.image.vendor="Bhavik Patwa" \
+    org.opencontainers.image.evidence-policy-sha256="${EVIDENCE_POLICY_SHA256}"
+
 COPY --from=ghcr.io/astral-sh/uv:0.12.16@sha256:adc68cd785ca65ea25c0611043b0a00b4ea3a22e1b54102fc084406d888082ee /uv /uvx /bin/
 
 ENV PYTHONDONTWRITEBYTECODE=1 \

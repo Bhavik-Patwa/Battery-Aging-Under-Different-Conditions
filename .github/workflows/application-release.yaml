@@ -1,0 +1,669 @@
+name: application-release
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: application-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: github.ref == 'refs/heads/main'
+    environment: evidence-release
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    env:
+      GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+      GCP_ARTIFACT_LOCATION: ${{ vars.GCP_ARTIFACT_LOCATION }}
+      GCP_ARTIFACT_REPOSITORY: ${{ vars.GCP_ARTIFACT_REPOSITORY }}
+      GCP_RELEASE_BUCKET: ${{ vars.GCP_RELEASE_BUCKET }}
+      EVIDENCE_BUNDLE_URI: ${{ vars.EVIDENCE_BUNDLE_URI }}
+      EVIDENCE_BUNDLE_SHA256: ${{ vars.EVIDENCE_BUNDLE_SHA256 }}
+      IMAGE_NAME: battery-aging-evidence-dashboard
+      LOCAL_IMAGE: battery-aging-evidence-dashboard:release
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Validate release configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test "$GITHUB_REF" = "refs/heads/main"
+
+          for variable_name in \
+            GCP_PROJECT_ID \
+            GCP_ARTIFACT_LOCATION \
+            GCP_ARTIFACT_REPOSITORY \
+            GCP_RELEASE_BUCKET \
+            EVIDENCE_BUNDLE_URI \
+            EVIDENCE_BUNDLE_SHA256
+          do
+            test -n "${!variable_name}"
+          done
+
+          case "$EVIDENCE_BUNDLE_SHA256" in
+            [0-9a-f][0-9a-f][0-9a-f][0-9a-f]*)
+              test "${#EVIDENCE_BUNDLE_SHA256}" -eq 64
+              ;;
+            *)
+              exit 1
+              ;;
+          esac
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          project_id: ${{ env.GCP_PROJECT_ID }}
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_RELEASE_SERVICE_ACCOUNT }}
+
+      - name: Install Google Cloud CLI
+        uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3
+        with:
+          project_id: ${{ env.GCP_PROJECT_ID }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@94527f2e458b27549849d47d273a16bec83a01e9 # v7
+        with:
+          version: "0.12.16"
+          enable-cache: true
+
+      - name: Install Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.11.16"
+
+      - name: Validate dependency lock
+        run: uv lock --check
+
+      - name: Install locked dependencies
+        run: uv sync --frozen --all-groups --no-install-project
+
+      - name: Retrieve production evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p "$RUNNER_TEMP/evidence"
+          gcloud storage cp \
+            "$EVIDENCE_BUNDLE_URI" \
+            "$RUNNER_TEMP/evidence/evidence_dashboard_artifacts.tar.gz"
+
+          observed_sha256="$(
+            sha256sum \
+              "$RUNNER_TEMP/evidence/evidence_dashboard_artifacts.tar.gz" \
+              | cut -d' ' -f1
+          )"
+
+          test "$observed_sha256" = "$EVIDENCE_BUNDLE_SHA256"
+
+          mkdir -p data/processed
+          tar \
+            --extract \
+            --gzip \
+            --file "$RUNNER_TEMP/evidence/evidence_dashboard_artifacts.tar.gz" \
+            --directory data/processed
+
+      - name: Validate production evidence
+        run: |
+          .venv/bin/python -m dashboard.healthcheck \
+            --artifact-root data/processed \
+            --policy-path configs/evidence_dashboard_policy.json
+
+      - name: Run self-contained tests
+        run: .venv/bin/python -m pytest -q -m "not production_artifacts"
+
+      - name: Run dashboard production-artifact tests
+        run: |
+          .venv/bin/python -m pytest \
+            -q \
+            -m production_artifacts \
+            tests/test_evidence_dashboard.py
+
+      - name: Build release image
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          policy_sha256="$(
+            sha256sum configs/evidence_dashboard_policy.json \
+              | cut -d' ' -f1
+          )"
+
+          docker build \
+            --file Dockerfile.dashboard \
+            --build-arg SOURCE_REVISION="$GITHUB_SHA" \
+            --build-arg SOURCE_URL="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
+            --build-arg EVIDENCE_POLICY_SHA256="$policy_sha256" \
+            --tag "$LOCAL_IMAGE" \
+            .
+
+      - name: Verify image metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          policy_sha256="$(
+            sha256sum configs/evidence_dashboard_policy.json \
+              | cut -d' ' -f1
+          )"
+
+          test "$(
+            docker inspect \
+              --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' \
+              "$LOCAL_IMAGE"
+          )" = "$GITHUB_SHA"
+
+          test "$(
+            docker inspect \
+              --format '{{ index .Config.Labels "org.opencontainers.image.evidence-policy-sha256" }}' \
+              "$LOCAL_IMAGE"
+          )" = "$policy_sha256"
+
+      - name: Start production-evidence container
+        run: |
+          docker run \
+            --detach \
+            --name evidence-dashboard-release \
+            --publish 127.0.0.1:8501:8501 \
+            --mount type=bind,source="$PWD/data/processed",target=/artifacts,readonly \
+            "$LOCAL_IMAGE"
+
+      - name: Verify container readiness
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          for attempt in {1..60}; do
+            container_health="$(
+              docker inspect \
+                --format '{{.State.Health.Status}}' \
+                evidence-dashboard-release
+            )"
+
+            if curl \
+              --fail \
+              --silent \
+              --show-error \
+              http://127.0.0.1:8501/_stcore/health >/dev/null \
+              && [ "$container_health" = "healthy" ]
+            then
+              docker inspect \
+                --format '{{json .State.Health}}' \
+                evidence-dashboard-release
+              exit 0
+            fi
+
+            sleep 1
+          done
+
+          docker inspect \
+            --format '{{json .State.Health}}' \
+            evidence-dashboard-release
+
+          docker logs evidence-dashboard-release
+          exit 1
+
+      - name: Verify every registered view
+        run: |
+          docker run \
+            --rm \
+            --mount type=bind,source="$PWD/data/processed",target=/artifacts,readonly \
+            --entrypoint python \
+            "$LOCAL_IMAGE" \
+            -c "
+          from streamlit.testing.v1 import AppTest
+
+          application = AppTest.from_file(
+              '/app/dashboard/app.py'
+          )
+
+          application.run(
+              timeout = 120
+          )
+
+          assert not application.exception, (
+              'Initial render: '
+              + str(
+                  application.exception
+              )
+          )
+
+          for page_name in [
+              'Evidence boundaries',
+              'Experimental support',
+              'Trajectories',
+              'Predictive evidence',
+              'Robustness',
+              'Provenance'
+          ]:
+              application.sidebar.radio[
+                  0
+              ].set_value(
+                  page_name
+              )
+
+              application.run(
+                  timeout = 120
+              )
+
+              assert not application.exception, (
+                  page_name
+                  + ': '
+                  + str(
+                      application.exception
+                  )
+              )
+
+          print(
+              'All registered views rendered successfully.'
+          )
+          "
+
+      - name: Stop verification container
+        if: always()
+        run: |
+          docker rm \
+            --force \
+            evidence-dashboard-release \
+            >/dev/null 2>&1 \
+            || true
+
+      - name: Scan release image
+        id: vulnerability_scan
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          scan_name="$(
+            gcloud artifacts docker images scan \
+              "$LOCAL_IMAGE" \
+              --location=us \
+              --format='value(response.scan)'
+          )"
+
+          test -n "$scan_name"
+
+          gcloud artifacts docker images list-vulnerabilities \
+            "$scan_name" \
+            --format=json \
+            > "$RUNNER_TEMP/vulnerabilities.json"
+
+          SCAN_PATH="$RUNNER_TEMP/vulnerabilities.json" \
+            .venv/bin/python - <<'PY'
+          import collections
+          import json
+          import os
+
+          from pathlib import Path
+
+
+          scan_path = Path(
+              os.environ[
+                  "SCAN_PATH"
+              ]
+          )
+
+          records = json.loads(
+              scan_path.read_text(
+                  encoding = "utf-8"
+              )
+          )
+
+          severity_counts = collections.Counter()
+
+          for record in records:
+              severity = (
+                  record.get(
+                      "effectiveSeverity"
+                  )
+                  or record.get(
+                      "severity"
+                  )
+              )
+
+              if severity:
+                  severity_counts[
+                      str(
+                          severity
+                      ).upper()
+                  ] += 1
+
+          summary = {
+              "record_count": len(
+                  records
+              ),
+              "severity_counts": dict(
+                  sorted(
+                      severity_counts.items()
+                  )
+              )
+          }
+
+          summary_path = scan_path.with_name(
+              "vulnerability_summary.json"
+          )
+
+          summary_path.write_text(
+              json.dumps(
+                  summary,
+                  indent = 2,
+                  sort_keys = True
+              )
+              + "\n",
+              encoding = "utf-8"
+          )
+
+          print(
+              json.dumps(
+                  summary,
+                  sort_keys = True
+              )
+          )
+
+          if severity_counts.get(
+              "CRITICAL",
+              0
+          ):
+              raise SystemExit(
+                  "Release image contains critical vulnerabilities."
+              )
+          PY
+
+      - name: Authenticate Docker to Artifact Registry
+        run: |
+          gcloud auth configure-docker \
+            "${GCP_ARTIFACT_LOCATION}-docker.pkg.dev" \
+            --quiet
+
+      - name: Publish tested image
+        id: publish
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          remote_image="$(
+            printf '%s-docker.pkg.dev/%s/%s/%s' \
+              "$GCP_ARTIFACT_LOCATION" \
+              "$GCP_PROJECT_ID" \
+              "$GCP_ARTIFACT_REPOSITORY" \
+              "$IMAGE_NAME"
+          )"
+
+          remote_tag="${remote_image}:git-${GITHUB_SHA}"
+
+          if gcloud artifacts docker images describe \
+            "$remote_tag" \
+            >/dev/null 2>&1
+          then
+            echo "The immutable release tag already exists."
+            exit 1
+          fi
+
+          docker tag \
+            "$LOCAL_IMAGE" \
+            "$remote_tag"
+
+          docker push \
+            "$remote_tag"
+
+          image_digest="$(
+            gcloud artifacts docker images describe \
+              "$remote_tag" \
+              --format='value(image_summary.digest)'
+          )"
+
+          case "$image_digest" in
+            sha256:[0-9a-f]*)
+              test "${#image_digest}" -eq 71
+              ;;
+            *)
+              exit 1
+              ;;
+          esac
+
+          digest_reference="${remote_image}@${image_digest}"
+
+          docker pull \
+            "$digest_reference"
+
+          test "$(
+            docker inspect \
+              --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' \
+              "$digest_reference"
+          )" = "$GITHUB_SHA"
+
+          printf '%s\n' \
+            "$digest_reference" \
+            > "$RUNNER_TEMP/image-reference.txt"
+
+          echo "remote_tag=$remote_tag" >> "$GITHUB_OUTPUT"
+          echo "image_digest=$image_digest" >> "$GITHUB_OUTPUT"
+          echo "digest_reference=$digest_reference" >> "$GITHUB_OUTPUT"
+
+      - name: Build source provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git archive \
+            --format=tar.gz \
+            --output="$RUNNER_TEMP/source.tar.gz" \
+            "$GITHUB_SHA"
+
+          mkdir -p "$RUNNER_TEMP/source-tree"
+
+          tar \
+            --extract \
+            --gzip \
+            --file "$RUNNER_TEMP/source.tar.gz" \
+            --directory "$RUNNER_TEMP/source-tree"
+
+          (
+            cd "$RUNNER_TEMP/source-tree"
+
+            find . \
+              -type f \
+              -print0 \
+              | sort -z \
+              | xargs -0 sha256sum
+          ) > "$RUNNER_TEMP/source_manifest.sha256"
+
+      - name: Build release manifest
+        shell: bash
+        env:
+          DIGEST_REFERENCE: ${{ steps.publish.outputs.digest_reference }}
+          IMAGE_DIGEST: ${{ steps.publish.outputs.image_digest }}
+          REMOTE_TAG: ${{ steps.publish.outputs.remote_tag }}
+        run: |
+          set -euo pipefail
+
+          export POLICY_SHA256="$(
+            sha256sum configs/evidence_dashboard_policy.json \
+              | cut -d' ' -f1
+          )"
+
+          export SOURCE_ARCHIVE_SHA256="$(
+            sha256sum "$RUNNER_TEMP/source.tar.gz" \
+              | cut -d' ' -f1
+          )"
+
+          export SOURCE_MANIFEST_SHA256="$(
+            sha256sum "$RUNNER_TEMP/source_manifest.sha256" \
+              | cut -d' ' -f1
+          )"
+
+          export VULNERABILITY_REPORT_SHA256="$(
+            sha256sum "$RUNNER_TEMP/vulnerabilities.json" \
+              | cut -d' ' -f1
+          )"
+
+          export VULNERABILITY_SUMMARY_SHA256="$(
+            sha256sum "$RUNNER_TEMP/vulnerability_summary.json" \
+              | cut -d' ' -f1
+          )"
+
+          export DIGEST_REFERENCE
+          export IMAGE_DIGEST
+          export REMOTE_TAG
+
+          RELEASE_MANIFEST_PATH="$RUNNER_TEMP/release_manifest.json" \
+            .venv/bin/python - <<'PY'
+          import json
+          import os
+
+          from pathlib import Path
+
+
+          policy = json.loads(
+              Path(
+                  "configs/evidence_dashboard_policy.json"
+              ).read_text(
+                  encoding = "utf-8"
+              )
+          )
+
+          manifest = {
+              "manifest_version": "1",
+              "source": {
+                  "repository": os.environ[
+                      "GITHUB_REPOSITORY"
+                  ],
+                  "commit": os.environ[
+                      "GITHUB_SHA"
+                  ],
+                  "archive_sha256": os.environ[
+                      "SOURCE_ARCHIVE_SHA256"
+                  ],
+                  "file_manifest_sha256": os.environ[
+                      "SOURCE_MANIFEST_SHA256"
+                  ]
+              },
+              "evidence": {
+                  "bundle_uri": os.environ[
+                      "EVIDENCE_BUNDLE_URI"
+                  ],
+                  "bundle_sha256": os.environ[
+                      "EVIDENCE_BUNDLE_SHA256"
+                  ],
+                  "registered_report_count": len(
+                      policy[
+                          "inputs"
+                      ]
+                  ),
+                  "registered_table_count": sum(
+                      len(
+                          source[
+                              "tables"
+                          ]
+                      )
+                      for source in policy[
+                          "inputs"
+                      ].values()
+                  )
+              },
+              "application": {
+                  "policy_sha256": os.environ[
+                      "POLICY_SHA256"
+                  ],
+                  "image_tag": os.environ[
+                      "REMOTE_TAG"
+                  ],
+                  "image_digest": os.environ[
+                      "IMAGE_DIGEST"
+                  ],
+                  "image_reference": os.environ[
+                      "DIGEST_REFERENCE"
+                  ]
+              },
+              "verification": {
+                  "workflow": os.environ[
+                      "GITHUB_WORKFLOW"
+                  ],
+                  "workflow_run_id": os.environ[
+                      "GITHUB_RUN_ID"
+                  ],
+                  "workflow_run_attempt": os.environ[
+                      "GITHUB_RUN_ATTEMPT"
+                  ],
+                  "vulnerability_report_sha256": os.environ[
+                      "VULNERABILITY_REPORT_SHA256"
+                  ],
+                  "vulnerability_summary_sha256": os.environ[
+                      "VULNERABILITY_SUMMARY_SHA256"
+                  ],
+                  "production_evidence_validated": True,
+                  "registered_views_rendered": True
+              }
+          }
+
+          output_path = Path(
+              os.environ[
+                  "RELEASE_MANIFEST_PATH"
+              ]
+          )
+
+          output_path.write_text(
+              json.dumps(
+                  manifest,
+                  indent = 2,
+                  sort_keys = True
+              )
+              + "\n",
+              encoding = "utf-8"
+          )
+          PY
+
+      - name: Publish provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          release_uri="$(
+            printf 'gs://%s/evidence_dashboard/releases/%s/' \
+              "$GCP_RELEASE_BUCKET" \
+              "$GITHUB_SHA"
+          )"
+
+          gcloud storage cp \
+            "$RUNNER_TEMP/source.tar.gz" \
+            "$RUNNER_TEMP/source_manifest.sha256" \
+            "$RUNNER_TEMP/vulnerabilities.json" \
+            "$RUNNER_TEMP/vulnerability_summary.json" \
+            "$RUNNER_TEMP/image-reference.txt" \
+            "$RUNNER_TEMP/release_manifest.json" \
+            "$release_uri"
+
+          gcloud storage cp \
+            "${release_uri}release_manifest.json" \
+            "$RUNNER_TEMP/release_manifest.downloaded.json"
+
+          cmp \
+            "$RUNNER_TEMP/release_manifest.json" \
+            "$RUNNER_TEMP/release_manifest.downloaded.json"
+
+          release_manifest_sha256="$(
+            sha256sum "$RUNNER_TEMP/release_manifest.json" \
+              | cut -d' ' -f1
+          )"
+
+          {
+            echo "### Application release"
+            echo
+            echo "- Commit: \`$GITHUB_SHA\`"
+            echo "- Image: \`${{ steps.publish.outputs.digest_reference }}\`"
+            echo "- Release manifest SHA-256: \`$release_manifest_sha256\`"
+            echo "- Provenance: \`${release_uri}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

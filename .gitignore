@@ -12,3 +12,5 @@ htmlcov/
 
 data/
 scripts/exploratory/
+
+gha-creds-*.json
