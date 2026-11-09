@@ -287,19 +287,20 @@ jobs:
         run: |
           set -euo pipefail
 
-          scan_name="$(
-            gcloud artifacts docker images scan \
-              "$LOCAL_IMAGE" \
-              --location=us \
-              --format='value(response.scan)'
-          )"
+          docker run \
+            --rm \
+            --volume "$RUNNER_TEMP:/scan-output" \
+            --volume /var/run/docker.sock:/var/run/docker.sock \
+            aquasec/trivy:0.57.1 \
+              image \
+              --format json \
+              --output /scan-output/vulnerabilities.json \
+              --severity CRITICAL,HIGH,MEDIUM,LOW \
+              --scanners vuln \
+              --quiet \
+              "$LOCAL_IMAGE"
 
-          test -n "$scan_name"
-
-          gcloud artifacts docker images list-vulnerabilities \
-            "$scan_name" \
-            --format=json \
-            > "$RUNNER_TEMP/vulnerabilities.json"
+          test -s "$RUNNER_TEMP/vulnerabilities.json"
 
           SCAN_PATH="$RUNNER_TEMP/vulnerabilities.json" \
             .venv/bin/python - <<'PY'
@@ -316,7 +317,7 @@ jobs:
               ]
           )
 
-          records = json.loads(
+          report = json.loads(
               scan_path.read_text(
                   encoding = "utf-8"
               )
@@ -324,32 +325,37 @@ jobs:
 
           severity_counts = collections.Counter()
 
-          for record in records:
-              severity = (
-                  record.get(
-                      "effectiveSeverity"
+          for result in report.get(
+              "Results",
+              []
+          ):
+              for vulnerability in result.get(
+                  "Vulnerabilities",
+                  []
+              ):
+                  severity = vulnerability.get(
+                      "Severity"
                   )
-                  or record.get(
-                      "severity"
-                  )
-              )
 
-              if severity:
-                  severity_counts[
-                      str(
-                          severity
-                      ).upper()
-                  ] += 1
+                  if severity:
+                      severity_counts[
+                          str(
+                              severity
+                          ).upper()
+                      ] += 1
 
           summary = {
-              "record_count": len(
-                  records
+              "record_count": sum(
+                  severity_counts.values()
               ),
               "severity_counts": dict(
                   sorted(
                       severity_counts.items()
                   )
-              )
+              ),
+              "image_reference": os.environ[
+                  "LOCAL_IMAGE"
+              ]
           }
 
           summary_path = scan_path.with_name(
