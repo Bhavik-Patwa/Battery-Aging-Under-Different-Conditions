@@ -1,0 +1,152 @@
+{
+  "policy_name": "evidence_dashboard_policy",
+  "policy_version": "1.0",
+  "effective_date": "2026-11-08",
+  "registration_status": "prospective_presentation_contract",
+  "scientific_scope": {
+    "causal_interpretation_authorized": false,
+    "policy_recommendation_authorized": false,
+    "treatment_optimization_authorized": false,
+    "novel_condition_prediction_authorized": false,
+    "discrete_point_contrast_reporting_authorized": false,
+    "continuous_supported_trajectory_reporting_authorized": true,
+    "predictive_reporting_authorized": true,
+    "restricted_robustness_reporting_authorized": true,
+    "model_fitting_in_application_authorized": false,
+    "artifact_mutation_authorized": false
+  },
+  "presentation_contract": {
+    "application_title": "Battery Aging Evidence Explorer",
+    "application_role": "read_only_evidence_reporting",
+    "independent_experimental_unit": "cell",
+    "required_estimate_labels": [
+      "descriptive",
+      "associational",
+      "predictive"
+    ],
+    "required_navigation": [
+      "Evidence boundaries",
+      "Experimental support",
+      "Trajectories",
+      "Predictive evidence",
+      "Robustness",
+      "Provenance"
+    ],
+    "unsupported_results_remain_visible": true,
+    "diagnostic_only_results_remain_labelled": true,
+    "downloads_are_limited_to_displayed_summary_records": true
+  },
+  "inputs": {
+    "feature_extraction": {
+      "report_path": "feature_table_manifest.json",
+      "report_sha256": "7e5ef6475bdcb252896b68188262c6bae9b40a5ade729029ba5a523136002afa",
+      "required_values": {
+        "extraction_status": "completed"
+      },
+      "tables": []
+    },
+    "experimental_design": {
+      "report_path": "experimental_design/experimental_design_report.json",
+      "report_sha256": "ef71483eae21d24f82e0d4ae65e1c269caf368fa4ec3d3c0b12e88a1347062b2",
+      "required_values": {
+        "audit_status": "completed",
+        "discrete_comparison_horizon_status": "not_authorized_without_outcome_blind_pre_specification",
+        "trajectory_estimand_status": "defined_over_recorded_common_support_ranges"
+      },
+      "tables": [
+        "treatment_combination_support"
+      ]
+    },
+    "causal_identification": {
+      "report_path": "causal_identification/causal_identification_report.json",
+      "report_sha256": "2eea2134acd8b458434d9cb16a477a0a212b035f3ceecf6cc9d77fd2bf8097d5",
+      "required_values": {
+        "assessment_status": "completed",
+        "causal_modeling_status": "not_authorized",
+        "associational_hierarchical_modeling_status": "partially_authorized"
+      },
+      "tables": [
+        "estimand_identification",
+        "assumption_inventory"
+      ]
+    },
+    "descriptive_modeling": {
+      "report_path": "descriptive_models/descriptive_modeling_report.json",
+      "report_sha256": "afa4973834e3b7a50d9387074e6b56cd6e1ea5ad826dcf0a52c94e06c0669956",
+      "required_values": {
+        "analysis_status": "completed",
+        "causal_interpretation_authorized": false,
+        "policy_recommendation_authorized": false
+      },
+      "tables": [
+        "trajectory_summaries"
+      ]
+    },
+    "bayesian_modeling": {
+      "report_path": "bayesian_models/bayesian_modeling_report.json",
+      "report_sha256": "bd8bb27306027b2be922de798af8d01359c8f284e43d9a0248425ef71c69d7dd",
+      "required_values": {
+        "assessment_status": "completed",
+        "operation": "fit"
+      },
+      "tables": [
+        "candidate_registry",
+        "continuous_trajectory_summaries",
+        "grouped_validation_metrics"
+      ]
+    },
+    "predictive_modeling": {
+      "report_path": "predictive_models/predictive_benchmarking_report.json",
+      "report_sha256": "f83818fe1abf04c553223d2d890f504d0077af5bc924e56d3303fe847f210eed",
+      "required_values": {
+        "analysis_status": "completed_with_candidate_restrictions",
+        "causal_interpretation_authorized": false,
+        "policy_recommendation_authorized": false,
+        "novel_condition_prediction_authorized": false
+      },
+      "tables": [
+        "candidate_registry",
+        "validation_metrics",
+        "feature_importance"
+      ]
+    },
+    "predictive_sensitivity": {
+      "report_path": "predictive_sensitivity/predictive_sensitivity_report.json",
+      "report_sha256": "ce52bc78ea46660797eeaec08290d76790c006ac2aea999bfecc73195c0b1c22",
+      "required_values": {
+        "execution_status": "completed",
+        "causal_interpretation_authorized": false,
+        "policy_recommendation_authorized": false
+      },
+      "tables": [
+        "sensitivity_comparisons"
+      ]
+    },
+    "robustness_assessment": {
+      "report_path": "robustness_assessment/robustness_assessment_report.json",
+      "report_sha256": "42686dbe2cd6d29c119b1ba7e0680cc7e30db7e2b4d54511e4471e3b9f4f2c5a",
+      "required_values": {
+        "execution_status": "completed",
+        "scientific_assessment_status": "restricted_evidence_summary_only",
+        "causal_interpretation_authorized": false,
+        "policy_recommendation_authorized": false
+      },
+      "tables": [
+        "assessment_coverage",
+        "structural_limitations",
+        "external_validity",
+        "fragility_registry"
+      ]
+    }
+  },
+  "release_contract": {
+    "artifact_root_environment_variable": "EVIDENCE_ARTIFACT_ROOT",
+    "policy_path_environment_variable": "EVIDENCE_DASHBOARD_POLICY",
+    "default_artifact_root": "data/processed",
+    "default_policy_path": "configs/evidence_dashboard_policy.json",
+    "fail_closed_on_hash_mismatch": true,
+    "fail_closed_on_schema_mismatch": true,
+    "fail_closed_on_row_count_mismatch": true,
+    "network_access_required": false
+  }
+}

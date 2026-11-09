@@ -1,0 +1,1 @@
+"""Read-only presentation of validated analytical evidence."""
