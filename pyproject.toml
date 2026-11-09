@@ -37,3 +37,6 @@ python_files = [
 pythonpath = [
     "."
 ]
+markers = [
+    "production_artifacts: requires validated generated artifacts under data/processed"
+]

@@ -88,6 +88,7 @@ def test_policy_rejects_performance_selected_winner():
 
 
 # Confirming the policy binds the current upstream input reports
+@pytest.mark.production_artifacts
 def test_policy_binds_current_input_reports():
     policy = load_policy()
 
@@ -4591,6 +4592,7 @@ def test_interval_diagnostics_handles_empty_available_intervals() -> None:
 
 
 # Confirming the predictive-sensitivity summary reconciles every registered variant
+@pytest.mark.production_artifacts
 def test_predictive_sensitivity_summary_reconciles_current_artifacts() -> None:
     from scripts.assess_robustness import (
         build_predictive_sensitivity_summary,
@@ -4764,6 +4766,7 @@ def test_result_informed_registration_requires_result_informed_amendment() -> No
 
 
 # Rejecting a sensitivity summary whose ablation or incident domain summary inventory is incomplete
+@pytest.mark.production_artifacts
 @pytest.mark.parametrize(
     (
         "table_name",
@@ -4822,6 +4825,7 @@ def test_predictive_sensitivity_summary_rejects_missing_domain_summary(table_nam
 
 
 # Rejecting an incident exclusion marked ineligible in at least one fold while claiming a completed comparison
+@pytest.mark.production_artifacts
 def test_incident_ineligibility_cannot_produce_available_comparison() -> None:
     from scripts.assess_robustness import (
         build_predictive_sensitivity_summary,

@@ -744,6 +744,7 @@ def test_workload_excludes_inadmissible_folds() -> None:
 
 
 # Confirming report validation rejects a tampered embedded policy
+@pytest.mark.production_artifacts
 def test_validate_bayesian_report_rejects_tampered_policy(tmp_path: Path, published_validation_directory: Path) -> None:
     report_path = (
         published_validation_directory
@@ -800,6 +801,7 @@ def test_validate_bayesian_report_rejects_tampered_policy(tmp_path: Path, publis
 
 
 # Confirming report validation rejects a value-only table tamper
+@pytest.mark.production_artifacts
 def test_validate_bayesian_report_rejects_value_tamper(tmp_path: Path, published_validation_directory: Path) -> None:
     source_directory = (
         published_validation_directory
@@ -2087,6 +2089,7 @@ def test_validate_policy_requires_new_cell_seed_rule() -> None:
 
 
 # Rejecting a prior-predictive diagnostic table that has been modified after publication
+@pytest.mark.production_artifacts
 def test_validate_bayesian_report_rejects_prior_predictive_diagnostic_tamper(
     tmp_path: Path, published_prior_predictive_directory: Path
 ) -> None:
@@ -2197,6 +2200,7 @@ def test_validate_bayesian_report_rejects_prior_predictive_diagnostic_tamper(
 
 
 # Rejecting a prior-predictive review template that has been modified after publication
+@pytest.mark.production_artifacts
 def test_validate_bayesian_report_rejects_review_template_tamper(
     tmp_path: Path, published_prior_predictive_directory: Path
 ) -> None:
@@ -3577,6 +3581,7 @@ def test_candidate_execution_status_is_not_overwritten_by_analytical_status() ->
 
 
 # Confirming that the validate operation never initializes the PyMC runtime
+@pytest.mark.production_artifacts
 def test_validate_operation_does_not_load_pymc_runtime(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     def reject_runtime(*args, **kwargs):
         raise AssertionError("load_bayesian_runtime was called during validate.")
