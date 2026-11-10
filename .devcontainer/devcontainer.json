@@ -1,5 +1,5 @@
 {
-    "name": "Adaptive Battery Aging Policy",
+    "name": "Battery Aging Under Different Conditions",
     "build": {
         "dockerfile": "../Dockerfile",
         "context": ".."
