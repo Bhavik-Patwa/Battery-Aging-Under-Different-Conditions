@@ -288,6 +288,18 @@ jobs:
         run: |
           set -euo pipefail
 
+          export LOCAL_IMAGE_ID="$(
+            docker image inspect \
+              --format '{{.Id}}' \
+              "$LOCAL_IMAGE"
+          )"
+
+          printf '%s\n' "$LOCAL_IMAGE_ID" \
+            | grep \
+                --extended-regexp \
+                --quiet \
+                '^sha256:[0-9a-f]{64}$'
+
           docker run \
             --rm \
             --volume "$RUNNER_TEMP:/scan-output" \
@@ -324,26 +336,105 @@ jobs:
               )
           )
 
+          local_image_id = os.environ[
+              "LOCAL_IMAGE_ID"
+          ]
+
+          report_image_id = str(
+              report.get(
+                  "Metadata",
+                  {}
+              ).get(
+                  "ImageID",
+                  ""
+              )
+          )
+
+          if report_image_id != local_image_id:
+              raise SystemExit(
+                  "The vulnerability report does not identify the scanned image."
+              )
+
           severity_counts = collections.Counter()
+          fixable_high_findings = []
 
           for result in report.get(
               "Results",
               []
           ):
+              target = str(
+                  result.get(
+                      "Target",
+                      ""
+                  )
+              )
+
               for vulnerability in result.get(
                   "Vulnerabilities",
                   []
               ):
-                  severity = vulnerability.get(
-                      "Severity"
-                  )
+                  severity = str(
+                      vulnerability.get(
+                          "Severity",
+                          ""
+                      )
+                  ).upper()
 
                   if severity:
                       severity_counts[
-                          str(
-                              severity
-                          ).upper()
+                          severity
                       ] += 1
+
+                  fixed_version = str(
+                      vulnerability.get(
+                          "FixedVersion",
+                          ""
+                      )
+                      or ""
+                  ).strip()
+
+                  if (
+                      severity == "HIGH"
+                      and fixed_version
+                  ):
+                      fixable_high_findings.append(
+                          {
+                              "target": target,
+                              "vulnerability_identity": str(
+                                  vulnerability.get(
+                                      "VulnerabilityID",
+                                      ""
+                                  )
+                              ),
+                              "package_name": str(
+                                  vulnerability.get(
+                                      "PkgName",
+                                      ""
+                                  )
+                              ),
+                              "installed_version": str(
+                                  vulnerability.get(
+                                      "InstalledVersion",
+                                      ""
+                                  )
+                              ),
+                              "fixed_version": fixed_version
+                          }
+                      )
+
+          fixable_high_findings.sort(
+              key = lambda record: (
+                  record[
+                      "package_name"
+                  ],
+                  record[
+                      "vulnerability_identity"
+                  ],
+                  record[
+                      "target"
+                  ]
+              )
+          )
 
           summary = {
               "record_count": sum(
@@ -354,12 +445,21 @@ jobs:
                       severity_counts.items()
                   )
               ),
+              "fixable_high_finding_count": len(
+                  fixable_high_findings
+              ),
+              "fixable_high_findings": fixable_high_findings,
               "image_reference": os.environ[
                   "LOCAL_IMAGE"
               ],
+              "scanned_image_id": local_image_id,
               "scanner_reference": os.environ[
                   "TRIVY_IMAGE"
-              ]
+              ],
+              "release_blocking_policy": {
+                  "critical_findings": "all",
+                  "high_findings": "fixed_version_available"
+              }
           }
 
           summary_path = scan_path.with_name(
@@ -388,9 +488,18 @@ jobs:
               0
           ):
               raise SystemExit(
-                  "Release image contains critical vulnerabilities."
+                  "The release image contains critical vulnerabilities."
+              )
+
+          if fixable_high_findings:
+              raise SystemExit(
+                  "The release image contains high-severity vulnerabilities with available fixes."
               )
           PY
+
+          echo \
+            "scanned_image_id=$LOCAL_IMAGE_ID" \
+            >> "$GITHUB_OUTPUT"
 
       - name: Preserve vulnerability assessment
         if: always()
@@ -412,8 +521,16 @@ jobs:
       - name: Publish tested image
         id: publish
         shell: bash
+        env:
+          SCANNED_IMAGE_ID: ${{ steps.vulnerability_scan.outputs.scanned_image_id }}
         run: |
           set -euo pipefail
+
+          printf '%s\n' "$SCANNED_IMAGE_ID" \
+            | grep \
+                --extended-regexp \
+                --quiet \
+                '^sha256:[0-9a-f]{64}$'
 
           remote_image="$(
             printf '%s-docker.pkg.dev/%s/%s/%s' \
@@ -446,25 +563,41 @@ jobs:
               --format='value(image_summary.digest)'
           )"
 
-          case "$image_digest" in
-            sha256:[0-9a-f]*)
-              test "${#image_digest}" -eq 71
-              ;;
-            *)
-              exit 1
-              ;;
-          esac
+          printf '%s\n' "$image_digest" \
+            | grep \
+                --extended-regexp \
+                --quiet \
+                '^sha256:[0-9a-f]{64}$'
 
           digest_reference="${remote_image}@${image_digest}"
 
           docker pull \
             "$digest_reference"
 
+          published_image_id="$(
+            docker image inspect \
+              --format '{{.Id}}' \
+              "$digest_reference"
+          )"
+
+          test \
+            "$published_image_id" \
+            = "$SCANNED_IMAGE_ID"
+
           test "$(
             docker inspect \
               --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' \
               "$digest_reference"
           )" = "$GITHUB_SHA"
+
+          test "$(
+            docker inspect \
+              --format '{{ index .Config.Labels "org.opencontainers.image.evidence-policy-sha256" }}' \
+              "$digest_reference"
+          )" = "$(
+            sha256sum configs/evidence_dashboard_policy.json \
+              | cut -d' ' -f1
+          )"
 
           printf '%s\n' \
             "$digest_reference" \
@@ -473,6 +606,7 @@ jobs:
           echo "remote_tag=$remote_tag" >> "$GITHUB_OUTPUT"
           echo "image_digest=$image_digest" >> "$GITHUB_OUTPUT"
           echo "digest_reference=$digest_reference" >> "$GITHUB_OUTPUT"
+          echo "published_image_id=$published_image_id" >> "$GITHUB_OUTPUT"
 
       - name: Build source provenance
         shell: bash
@@ -508,8 +642,14 @@ jobs:
           DIGEST_REFERENCE: ${{ steps.publish.outputs.digest_reference }}
           IMAGE_DIGEST: ${{ steps.publish.outputs.image_digest }}
           REMOTE_TAG: ${{ steps.publish.outputs.remote_tag }}
+          SCANNED_IMAGE_ID: ${{ steps.vulnerability_scan.outputs.scanned_image_id }}
+          PUBLISHED_IMAGE_ID: ${{ steps.publish.outputs.published_image_id }}
         run: |
           set -euo pipefail
+
+          test \
+            "$SCANNED_IMAGE_ID" \
+            = "$PUBLISHED_IMAGE_ID"
 
           export POLICY_SHA256="$(
             sha256sum configs/evidence_dashboard_policy.json \
@@ -557,7 +697,7 @@ jobs:
           )
 
           manifest = {
-              "manifest_version": "1",
+              "manifest_version": "2",
               "source": {
                   "repository": os.environ[
                       "GITHUB_REPOSITORY"
@@ -607,6 +747,9 @@ jobs:
                   ],
                   "image_reference": os.environ[
                       "DIGEST_REFERENCE"
+                  ],
+                  "image_id": os.environ[
+                      "PUBLISHED_IMAGE_ID"
                   ]
               },
               "verification": {
@@ -625,6 +768,20 @@ jobs:
                   "vulnerability_summary_sha256": os.environ[
                       "VULNERABILITY_SUMMARY_SHA256"
                   ],
+                  "scanned_image_id": os.environ[
+                      "SCANNED_IMAGE_ID"
+                  ],
+                  "published_image_id": os.environ[
+                      "PUBLISHED_IMAGE_ID"
+                  ],
+                  "scanned_image_matches_published_image": (
+                      os.environ[
+                          "SCANNED_IMAGE_ID"
+                      ]
+                      == os.environ[
+                          "PUBLISHED_IMAGE_ID"
+                      ]
+                  ),
                   "production_evidence_validated": True,
                   "registered_views_rendered": True
               }
