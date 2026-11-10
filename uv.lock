@@ -8,53 +8,6 @@ resolution-markers = [
 ]
 
 [[package]]
-name = "adaptive-battery-aging-policy"
-version = "0.1.0"
-source = { virtual = "." }
-dependencies = [
-    { name = "arviz" },
-    { name = "google-cloud-storage" },
-    { name = "google-cloud-storage-transfer" },
-    { name = "numpy" },
-    { name = "pymc" },
-    { name = "pyyaml" },
-    { name = "scikit-learn" },
-    { name = "scipy" },
-    { name = "statsmodels" },
-]
-
-[package.dev-dependencies]
-dashboard = [
-    { name = "certifi" },
-    { name = "pandas" },
-    { name = "streamlit" },
-]
-dev = [
-    { name = "pytest" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "arviz", specifier = ">=0.23.4,<1.0" },
-    { name = "google-cloud-storage", specifier = ">=3.14.1,<4.0" },
-    { name = "google-cloud-storage-transfer", specifier = ">=1.21.0,<2.0" },
-    { name = "numpy", specifier = ">=2.0,<3.0" },
-    { name = "pymc", specifier = ">=5.28.2,<6.0" },
-    { name = "pyyaml", specifier = ">=6.0,<7.0" },
-    { name = "scikit-learn", specifier = ">=1.9,<2.0" },
-    { name = "scipy", specifier = ">=1.16,<2.0" },
-    { name = "statsmodels", specifier = ">=0.15,<0.16" },
-]
-
-[package.metadata.requires-dev]
-dashboard = [
-    { name = "certifi", specifier = ">=2026.10.19,<2027" },
-    { name = "pandas", specifier = ">=3.1,<4.0" },
-    { name = "streamlit", specifier = ">=1.67,<2.0" },
-]
-dev = [{ name = "pytest", specifier = ">=8.4,<9.0" }]
-
-[[package]]
 name = "altair"
 version = "6.3.0"
 source = { registry = "https://pypi.org/simple" }
@@ -114,6 +67,53 @@ sdist = { url = "https://files.pythonhosted.org/packages/9a/8e/82a0fe20a541c0314
 wheels = [
     { url = "https://files.pythonhosted.org/packages/64/b4/17d4b0b2a2dc85a6df63d1157e028ed19f90d4cd97c36717afef2bc2f395/attrs-26.1.0-py3-none-any.whl", hash = "sha256:c647aa4a12dfbad9333ca4e71fe62ddc36f4e63b2d260a37a8b83d2f043ac309", size = 67548, upload-time = "2026-03-19T14:22:23.645Z" },
 ]
+
+[[package]]
+name = "battery-aging-under-different-conditions"
+version = "0.1.0"
+source = { virtual = "." }
+dependencies = [
+    { name = "arviz" },
+    { name = "google-cloud-storage" },
+    { name = "google-cloud-storage-transfer" },
+    { name = "numpy" },
+    { name = "pymc" },
+    { name = "pyyaml" },
+    { name = "scikit-learn" },
+    { name = "scipy" },
+    { name = "statsmodels" },
+]
+
+[package.dev-dependencies]
+dashboard = [
+    { name = "certifi" },
+    { name = "pandas" },
+    { name = "streamlit" },
+]
+dev = [
+    { name = "pytest" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "arviz", specifier = ">=0.23.4,<1.0" },
+    { name = "google-cloud-storage", specifier = ">=3.14.1,<4.0" },
+    { name = "google-cloud-storage-transfer", specifier = ">=1.21.0,<2.0" },
+    { name = "numpy", specifier = ">=2.0,<3.0" },
+    { name = "pymc", specifier = ">=5.28.2,<6.0" },
+    { name = "pyyaml", specifier = ">=6.0,<7.0" },
+    { name = "scikit-learn", specifier = ">=1.9,<2.0" },
+    { name = "scipy", specifier = ">=1.16,<2.0" },
+    { name = "statsmodels", specifier = ">=0.15,<0.16" },
+]
+
+[package.metadata.requires-dev]
+dashboard = [
+    { name = "certifi", specifier = ">=2026.10.19,<2027" },
+    { name = "pandas", specifier = ">=3.1,<4.0" },
+    { name = "streamlit", specifier = ">=1.67,<2.0" },
+]
+dev = [{ name = "pytest", specifier = ">=8.4,<9.0" }]
 
 [[package]]
 name = "cachetools"

@@ -352,24 +352,24 @@ Run the image with a read-only evidence mount :
 
 ```bash
 docker run --rm \
-  --publish 127.0.0.1 :8501 :8501 \
+  --publish 127.0.0.1:8501:8501 \
   --mount type=bind,source="$(pwd)/data/processed",target=/artifacts,readonly \
   battery-aging-evidence-dashboard:local
 ```
 
-The canonical released image is :
+A validated reference release is :
 
 ```text
 us-east1-docker.pkg.dev/battery-aging-policy/evidence-dashboard/battery-aging-evidence-dashboard@sha256:49bb232f355678b2a27eb6e7f1eb0fc03d92c5831a55d1bdee03f5e8953a74d1
 ```
 
-The release is bound to source commit :
+That reference release is bound to source commit :
 
 ```text
 d9fc2e25bf58a15fd354f31c2f9047045c454356
 ```
 
-The release image runs as a non-root user, contains no analytical artifacts and requires evidence to be mounted read-only.
+The validated reference release runs as a non-root user, contains no analytical artifacts and requires evidence to be mounted read-only. A release triggered from a later commit will carry that commit as its OCI `revision` label and appear under its own digest; the reference release above remains a durable, inspectable example of the release contract rather than a continuously updated pointer.
 
 The preserved vulnerability assessment records no critical findings and no high-severity findings for which a package fix was available at build time. Residual findings without an upstream fix remain recorded and require review before public deployment.
 
@@ -409,7 +409,7 @@ A formal methods and findings report is available in [`docs/SCIENTIFIC_REPORT.md
 When using this repository, cite both the source dataset and its associated publication :
 
 - Multi-Stage Lithium Ion Battery Aging Study. Figshare. <https://doi.org/10.6084/m9.figshare.25975315.v1>
-- Associated Scientific Data publication. <https://doi.org/10.1038/s41597-024-03859-z>
+- Stroebl, F., Petersohn, R., Schricker, B., Schaeufl, F., Bohlen, O., & Palm, H. "A multi-stage lithium-ion battery aging dataset using various experimental design methodologies." *Scientific Data* 11, 1020 (2024). <https://doi.org/10.1038/s41597-024-03859-z>
 
 Repository-specific citation metadata may be added once an archival repository release and persistent identifier are available.
 

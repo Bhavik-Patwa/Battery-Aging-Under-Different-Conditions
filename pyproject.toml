@@ -1,7 +1,7 @@
 [project]
-name = "adaptive-battery-aging-policy"
+name = "battery-aging-under-different-conditions"
 version = "0.1.0"
-description = "Controlled analysis of lithium-ion battery degradation and operating policy."
+description = "Evidence-constrained analysis of lithium-ion battery degradation under varied operating conditions."
 requires-python = ">=3.11,<3.12"
 dependencies = [
     "arviz>=0.23.4,<1.0",

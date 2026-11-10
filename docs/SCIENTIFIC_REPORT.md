@@ -45,7 +45,7 @@ Archive processing is incremental because a complete local extraction would requ
 
 ### 3.2 Quality inventory
 
-The completed quality assessment covers all 279 archives and 5,763 measurements. Significant observations include :
+The completed quality assessment covers all 279 archives and 5,763 measurements. Recorded quality findings include :
 
 - 2,462 measurements in which every sampled ambient-temperature value is non-finite;
 - 1,149 companion-metadata identity mismatches;
@@ -372,7 +372,7 @@ The verified repository state contains 836 passing tests. The self-contained tes
 
 ## 15. Software release
 
-The evidence dashboard is distributed as an immutable container :
+The evidence dashboard has been distributed as an immutable container. The release below is a validated reference release :
 
 ```text
 us-east1-docker.pkg.dev/battery-aging-policy/evidence-dashboard/battery-aging-evidence-dashboard@sha256:49bb232f355678b2a27eb6e7f1eb0fc03d92c5831a55d1bdee03f5e8953a74d1
@@ -384,7 +384,7 @@ It is bound to source commit :
 d9fc2e25bf58a15fd354f31c2f9047045c454356
 ```
 
-The image runs as a non-root user and requires analytical evidence to be mounted read-only. It contains no model-fitting workflow and does not embed analytical artifacts.
+The reference image runs as a non-root user and requires analytical evidence to be mounted read-only. A release triggered from a later commit supersedes this reference release under its own digest and OCI `revision` label; the reference release above remains an inspectable audit point. It contains no model-fitting workflow and does not embed analytical artifacts.
 
 The preserved vulnerability assessment records zero critical findings and zero high-severity findings with an available package fix. Residual findings without an available upstream fix remain recorded for deployment-specific review.
 
@@ -396,5 +396,6 @@ The data support useful descriptive and predictive analysis over represented con
 
 ## References
 
-1. *Multi-Stage Lithium Ion Battery Aging Study*. Figshare. <https://doi.org/10.6084/m9.figshare.25975315.v1>
-2. Associated Scientific Data publication. <https://doi.org/10.1038/s41597-024-03859-z>
+1. Multi-Stage Lithium Ion Battery Aging Study. Figshare. <https://doi.org/10.6084/m9.figshare.25975315.v1>
+
+2. Stroebl, F., Petersohn, R., Schricker, B., Schaeufl, F., Bohlen, O., & Palm, H. "A multi-stage lithium-ion battery aging dataset using various experimental design methodologies." *Scientific Data* 11, 1020 (2024). <https://doi.org/10.1038/s41597-024-03859-z>
