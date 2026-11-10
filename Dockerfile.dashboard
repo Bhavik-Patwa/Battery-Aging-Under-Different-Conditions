@@ -36,9 +36,24 @@ WORKDIR /app
 COPY pyproject.toml uv.lock ./
 
 RUN uv sync \
-    --frozen \
-    --only-group dashboard \
-    --no-install-project
+        --frozen \
+        --only-group dashboard \
+        --no-install-project \
+    && rm --recursive --force \
+        /root/.cache/uv \
+        /usr/local/lib/python3.11/site-packages/pip* \
+        /usr/local/lib/python3.11/site-packages/setuptools* \
+        /usr/local/lib/python3.11/site-packages/wheel* \
+        /usr/local/lib/python3.11/site-packages/jaraco* \
+        /usr/local/lib/python3.11/site-packages/_jaraco* \
+    && rm --force \
+        /usr/local/bin/pip \
+        /usr/local/bin/pip3 \
+        /usr/local/bin/pip3.11 \
+        /usr/local/bin/wheel \
+        /usr/local/bin/easy_install* \
+        /bin/uv \
+        /bin/uvx
 
 COPY dashboard ./dashboard
 COPY configs/evidence_dashboard_policy.json ./configs/evidence_dashboard_policy.json

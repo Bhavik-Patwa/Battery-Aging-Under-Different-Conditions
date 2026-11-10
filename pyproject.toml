@@ -21,7 +21,8 @@ dev = [
 ]
 dashboard = [
     "pandas>=3.1,<4.0",
-    "streamlit>=1.67,<2.0"
+    "streamlit>=1.67,<2.0",
+    "certifi>=2026.10.19,<2027"
 ]
 
 [tool.uv]
