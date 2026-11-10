@@ -47,7 +47,7 @@ Archive processing is incremental because a complete local extraction would requ
 
 The completed quality assessment covers all 279 archives and 5,763 measurements. Significant observations include :
 
-- 2,462 measurements with nonfinite ambient-temperature values;
+- 2,462 measurements in which every sampled ambient-temperature value is non-finite;
 - 1,149 companion-metadata identity mismatches;
 - 205 measurements outside explicit physical guardrails;
 - 24 empty measurements;
@@ -375,7 +375,7 @@ The verified repository state contains 836 passing tests. The self-contained tes
 The evidence dashboard is distributed as an immutable container :
 
 ```text
-us-east1-docker.pkg.dev/battery-aging-policy/evidence-dashboard/battery-aging-evidence-dashboard@sha256 :49bb232f355678b2a27eb6e7f1eb0fc03d92c5831a55d1bdee03f5e8953a74d1
+us-east1-docker.pkg.dev/battery-aging-policy/evidence-dashboard/battery-aging-evidence-dashboard@sha256:49bb232f355678b2a27eb6e7f1eb0fc03d92c5831a55d1bdee03f5e8953a74d1
 ```
 
 It is bound to source commit :

@@ -101,7 +101,7 @@ All 279 cell archives and 5,763 measurements were audited.
 
 The source data contain several conditions that must remain visible during analysis :
 
-- 2,462 measurements with nonfinite ambient-temperature values;
+- 2,462 measurements in which every sampled ambient-temperature value is non-finite;
 - 1,149 companion-metadata identity mismatches;
 - 205 measurements with values outside registered physical guardrails;
 - 24 empty measurements;
@@ -344,7 +344,7 @@ docker build \
   --build-arg SOURCE_REVISION="$source_revision" \
   --build-arg SOURCE_URL="https://github.com/Bhavik-Patwa/Battery-Aging-Under-Different-Conditions" \
   --build-arg EVIDENCE_POLICY_SHA256="$policy_sha256" \
-  --tag battery-aging-evidence-dashboard :local \
+  --tag battery-aging-evidence-dashboard:local \
   .
 ```
 
@@ -354,13 +354,13 @@ Run the image with a read-only evidence mount :
 docker run --rm \
   --publish 127.0.0.1 :8501 :8501 \
   --mount type=bind,source="$(pwd)/data/processed",target=/artifacts,readonly \
-  battery-aging-evidence-dashboard :local
+  battery-aging-evidence-dashboard:local
 ```
 
 The canonical released image is :
 
 ```text
-us-east1-docker.pkg.dev/battery-aging-policy/evidence-dashboard/battery-aging-evidence-dashboard@sha256 :49bb232f355678b2a27eb6e7f1eb0fc03d92c5831a55d1bdee03f5e8953a74d1
+us-east1-docker.pkg.dev/battery-aging-policy/evidence-dashboard/battery-aging-evidence-dashboard@sha256:49bb232f355678b2a27eb6e7f1eb0fc03d92c5831a55d1bdee03f5e8953a74d1
 ```
 
 The release is bound to source commit :
