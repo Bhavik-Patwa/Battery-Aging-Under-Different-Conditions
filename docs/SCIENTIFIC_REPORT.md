@@ -2,7 +2,7 @@
 
 ## Abstract
 
-This project provides a reproducible analysis of the Multi-Stage Lithium Ion Battery Aging Study for 279 Samsung INR21700-50E cells. The implementation integrates verified cloud acquisition, archive- and measurement-level quality assessment, longitudinal feature extraction, experimental-support analysis, causal identification assessment, descriptive modeling, hierarchical Bayesian modeling, predictive benchmarking, sensitivity analysis, robustness synthesis and read-only evidence reporting. The analysis treats the cell as the independent experimental unit and evaluates relative capacity and relative uncorrected DC internal resistance over observed longitudinal support. The completed predictive inventory contains 393 family-specific benchmarks across elastic-net, random-forest and gradient-boosting models; 273 satisfy the registered analytical requirements, with median equal-cell-weighted predictive R² ranging from 0.867 for elastic net to 0.928 for random forest among available benchmarks. A further 4,353 sensitivity variants evaluate grouped partitions, bounded configuration search, training windows, documented incidents and predictor ablations. The project demonstrates that useful within-condition degradation prediction is possible while also showing that predictive accuracy does not resolve limitations in treatment assignment, confounding control, experimental overlap or transportability. Results are therefore reported as observational, associational or predictive evidence within represented conditions, not as causal treatment effects or operating-policy recommendations.
+This project provides a reproducible analysis of the Multi-Stage Lithium Ion Battery Aging Study for 279 Samsung INR21700-50E cells. The implementation integrates verified cloud acquisition, archive- and measurement-level quality assessment, longitudinal feature extraction, experimental-support analysis, causal identification assessment, descriptive modeling, hierarchical Bayesian modeling, predictive benchmarking, sensitivity analysis, robustness synthesis and read-only evidence reporting. The analysis treats the cell as the independent experimental unit and evaluates relative capacity and relative uncorrected DC internal resistance over observed longitudinal support. The completed predictive inventory contains 393 family-specific benchmarks across elastic-net, random-forest and gradient-boosting models; 273 satisfy the registered analytical requirements, with median equal-cell-weighted predictive R² ranging from 0.867 for elastic net to 0.928 for random forest among available benchmarks. A further 4,353 sensitivity variants evaluate grouped partitions, bounded configuration search, training windows, documented incidents and predictor ablations. The project demonstrates that useful within-condition degradation prediction is possible while also showing that predictive accuracy does not resolve limitations in treatment assignment, confounding control, experimental overlap or transportability. Results are therefore reported as descriptive, associational or predictive evidence within represented conditions, not as causal treatment effects or operating-policy recommendations.
 
 ## 1. Research scope
 
@@ -13,7 +13,7 @@ The source dataset contains calendar-aging and cycle-aging experiments conducted
 - characterize observed degradation trajectories;
 - quantify associational uncertainty where hierarchical modeling is supportable;
 - evaluate held-out predictive performance using cell-grouped validation; and
-- determine which findings remain stable under registered analytical perturbations.
+- characterize how findings vary under registered analytical perturbations and identify fragile or unavailable evidence.
 
 The intended domain is the represented cell type, equipment, laboratories, operating conditions and observation ranges. The analysis does not directly describe battery packs, other chemistries, other cell formats or unsupported operating regimes.
 
@@ -305,7 +305,7 @@ The assessment covers :
 
 Sixty-three Bayesian candidate identities contain held-out predictions without a corresponding grouped-validation metric record. Their 744 predictions are excluded from robustness computations. This exclusion is explicit in the reconciliation inventory.
 
-Exact shared-inventory cross-framework comparisons show strong agreement for a limited subset, but partial overlap and diagnostic-only source models prevent broad equivalence claims.
+Exact shared-inventory cross-framework comparisons were completed for 21 of 393 records and produced varying levels of agreement. Limited overlap, unavailable comparisons and diagnostic-only source models prevent broad equivalence claims.
 
 ## 12. Interpretation
 
@@ -368,25 +368,23 @@ The implementation provides :
 
 The read-only evidence application validates eight reports and fifteen displayed tables before rendering. It refuses startup when required evidence is missing or inconsistent.
 
-The verified repository state contains 836 passing tests. The self-contained test selection contains 822 passing tests, with 14 additional tests requiring generated production evidence.
+A complete full-workspace verification with the validated generated artifacts present produced 836 passing tests. The artifact-independent selection contains 822 passing tests, while 14 explicitly marked tests require the validated generated artifacts under `data/processed`.
 
 ## 15. Software release
 
-The evidence dashboard has been distributed as an immutable container. The release below is a validated reference release :
+The evidence dashboard is distributed through immutable, commit-specific container releases. Each protected release validates the production evidence, renders every registered view, scans the exact local image, verifies that the scanned and published image identities match, and publishes the tested image to Artifact Registry.
+
+The authoritative release manifest for each source commit is stored at:
 
 ```text
-us-east1-docker.pkg.dev/battery-aging-policy/evidence-dashboard/battery-aging-evidence-dashboard@sha256:49bb232f355678b2a27eb6e7f1eb0fc03d92c5831a55d1bdee03f5e8953a74d1
+gs://battery-aging-artifacts/evidence_dashboard/releases/<source-commit>/release_manifest.json
 ```
 
-It is bound to source commit :
+The manifest records the source commit, source archive, repository-relative file manifest, evidence bundle, dashboard policy, vulnerability records, image identity, registry digest and workflow identity.
 
-```text
-d9fc2e25bf58a15fd354f31c2f9047045c454356
-```
+A mutable `latest` image is not used. Source documents do not embed their own resulting image digest because changing the document changes the source commit and resulting digest. Previously published releases remain immutable historical audit points.
 
-The reference image runs as a non-root user and requires analytical evidence to be mounted read-only. A release triggered from a later commit supersedes this reference release under its own digest and OCI `revision` label; the reference release above remains an inspectable audit point. It contains no model-fitting workflow and does not embed analytical artifacts.
-
-The preserved vulnerability assessment records zero critical findings and zero high-severity findings with an available package fix. Residual findings without an available upstream fix remain recorded for deployment-specific review.
+Released images run as a non-root user, require analytical evidence to be mounted read-only, contain no model-fitting workflow and do not embed analytical artifacts. Publication is blocked by every critical vulnerability and every high-severity vulnerability with an available package fix. Residual findings without an available fix remain recorded for deployment-specific review.
 
 ## 16. Conclusion
 

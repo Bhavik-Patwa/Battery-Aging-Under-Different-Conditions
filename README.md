@@ -15,7 +15,7 @@ The system addresses four questions :
 1. What battery-aging measurements can be extracted reproducibly from the published archives?
 2. Which operating-condition comparisons have adequate experimental support?
 3. How accurately can relative capacity and DC internal resistance trajectories be described or predicted within observed conditions?
-4. Which findings remain stable under alternative model families, validation partitions, observation windows, incident exclusions and predictor sets?
+4. How do findings vary under alternative model families, validation partitions, observation windows, incident exclusions and predictor sets?
 
 The cell is the independent experimental unit. Repeated measurements from the same cell are treated as longitudinal observations and are never treated as independent cells.
 
@@ -31,7 +31,7 @@ The cell is the independent experimental unit. Repeated measurements from the sa
 - Condition and testing-protocol combinations : 93
 - Published files : 280, comprising experiment metadata and 279 cell archives
 
-The source dataset remains subject to the attribution and reuse terms published with its Figshare record.
+The source dataset is published under the [Creative Commons Attribution 4.0 International license](https://creativecommons.org/licenses/by/4.0/). This dataset license does not apply to the repository software, for which no software license is currently declared.
 
 ## Analytical scope
 
@@ -254,6 +254,16 @@ Requirements :
 - Docker for container verification
 - Google Cloud access for source acquisition or archived production evidence
 
+### Devcontainer credential prerequisite
+
+The devcontainer mounts the local Google Cloud Application Default Credentials file as read-only. Create that file before opening the repository in the devcontainer:
+
+```bash
+gcloud auth application-default login
+```
+
+This credential is required for the configured devcontainer mount and cloud-backed acquisition workflows. Running the dashboard directly against existing validated artifacts does not otherwise require Google Cloud credentials.
+
 Install the locked environment :
 
 ```bash
@@ -269,33 +279,33 @@ uv lock --check
 Run self-contained tests :
 
 ```bash
-python -m pytest -q -m "not production_artifacts"
+.venv/bin/python -m pytest -q -m "not production_artifacts"
 ```
 
 Run the complete suite when validated artifacts are present under `data/processed` :
 
 ```bash
-python -m pytest -q
+.venv/bin/python -m pytest -q
 ```
 
-The verified repository state contains 836 passing tests. The self-contained selection contains 822 passing tests and 14 explicitly marked artifact-dependent tests.
+A complete full-workspace verification with the validated generated artifacts present produced 836 passing tests. The artifact-independent selection contains 822 passing tests, while 14 explicitly marked tests require the validated artifacts under `data/processed`. The full-suite count must be regenerated whenever tests or registered artifacts change.
 
 ## Analytical execution
 
 Each command exposes its complete interface through `--help` :
 
 ```bash
-python -m scripts.ingest_dataset --help
-python -m scripts.validate_ingested_dataset --help
-python -m scripts.audit_data_quality --help
-python -m scripts.extract_cell_features --help
-python -m scripts.audit_experimental_design --help
-python -m scripts.assess_causal_identification --help
-python -m scripts.run_descriptive_models --help
-python -m scripts.run_bayesian_models --help
-python -m scripts.run_predictive_models --help
-python -m scripts.run_predictive_sensitivity --help
-python -m scripts.assess_robustness --help
+.venv/bin/python -m scripts.ingest_dataset --help
+.venv/bin/python -m scripts.validate_ingested_dataset --help
+.venv/bin/python -m scripts.audit_data_quality --help
+.venv/bin/python -m scripts.extract_cell_features --help
+.venv/bin/python -m scripts.audit_experimental_design --help
+.venv/bin/python -m scripts.assess_causal_identification --help
+.venv/bin/python -m scripts.run_descriptive_models --help
+.venv/bin/python -m scripts.run_bayesian_models --help
+.venv/bin/python -m scripts.run_predictive_models --help
+.venv/bin/python -m scripts.run_predictive_sensitivity --help
+.venv/bin/python -m scripts.assess_robustness --help
 ```
 
 Run commands against pinned inputs and machine-readable contracts. Do not replace registered inputs, thresholds, model inventories or support definitions without producing a separately identified analysis.
@@ -307,7 +317,7 @@ Bayesian posterior artifacts and predictive sensitivity calculations are computa
 Validate the complete evidence inventory :
 
 ```bash
-python -m dashboard.healthcheck \
+.venv/bin/python -m dashboard.healthcheck \
   --artifact-root data/processed \
   --policy-path configs/evidence_dashboard_policy.json
 ```
@@ -317,7 +327,7 @@ Run the application locally :
 ```bash
 EVIDENCE_ARTIFACT_ROOT=data/processed \
 EVIDENCE_DASHBOARD_POLICY=configs/evidence_dashboard_policy.json \
-streamlit run dashboard/app.py
+.venv/bin/streamlit run dashboard/app.py
 ```
 
 The dashboard provides six views :
@@ -337,7 +347,7 @@ Build the dashboard image with source and evidence metadata :
 
 ```bash
 source_revision="$(git rev-parse HEAD)"
-policy_sha256="$(python -c "import hashlib; from pathlib import Path; print(hashlib.sha256(Path('configs/evidence_dashboard_policy.json').read_bytes()).hexdigest())")"
+policy_sha256="$(.venv/bin/python -c "import hashlib; from pathlib import Path; print(hashlib.sha256(Path('configs/evidence_dashboard_policy.json').read_bytes()).hexdigest())")"
 
 docker build \
   --file Dockerfile.dashboard \
@@ -357,21 +367,17 @@ docker run --rm \
   battery-aging-evidence-dashboard:local
 ```
 
-A validated reference release is :
+Each protected release publishes the tested image under an immutable commit-specific tag and records its registry digest in a machine-readable release manifest. The authoritative manifest for a source commit is stored at:
 
 ```text
-us-east1-docker.pkg.dev/battery-aging-policy/evidence-dashboard/battery-aging-evidence-dashboard@sha256:49bb232f355678b2a27eb6e7f1eb0fc03d92c5831a55d1bdee03f5e8953a74d1
+gs://battery-aging-artifacts/evidence_dashboard/releases/<source-commit>/release_manifest.json
 ```
 
-That reference release is bound to source commit :
+The manifest binds the source commit and archive, repository-relative source-file manifest, evidence bundle, dashboard policy, vulnerability assessment, scanned image identity, published image identity and immutable registry digest.
 
-```text
-d9fc2e25bf58a15fd354f31c2f9047045c454356
-```
+The source documentation intentionally does not designate a mutable `latest` image or embed the digest generated from its own commit. Changing a source document changes the source commit and therefore changes the resulting image digest. Previously published digests remain valid historical artifacts rather than mutable pointers.
 
-The validated reference release runs as a non-root user, contains no analytical artifacts and requires evidence to be mounted read-only. A release triggered from a later commit will carry that commit as its OCI `revision` label and appear under its own digest; the reference release above remains a durable, inspectable example of the release contract rather than a continuously updated pointer.
-
-The preserved vulnerability assessment records no critical findings and no high-severity findings for which a package fix was available at build time. Residual findings without an upstream fix remain recorded and require review before public deployment.
+Released images run as a non-root user, contain no analytical artifacts and require evidence to be mounted read-only. Publication is blocked by every critical vulnerability and every high-severity vulnerability for which the scanner reports an available package fix. Residual findings without an available fix remain preserved for deployment-specific review.
 
 ## Reproducibility and provenance
 
