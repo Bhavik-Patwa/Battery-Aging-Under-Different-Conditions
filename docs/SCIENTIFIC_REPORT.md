@@ -168,7 +168,7 @@ The fitted inventory includes :
 - 362 analytically available fitted candidates; and
 - 362 diagnostic-only fitted candidates.
 
-Equal-cell weighting prevents cells with more repeated observations from dominating the fit. Validation folds are grouped by cell. Influence and uncertainty calculations use cell-level deletion where available.
+Weighted least-squares candidates assign each cell equal total regression weight. Linear mixed-effects candidates use an unweighted grouped likelihood with cell-level random effects. Validation metrics are equal-cell weighted, validation folds are grouped by cell, and influence and uncertainty calculations use cell-level deletion where available.
 
 No discrete point contrast is reported as completed. The approved estimand is a continuous trajectory over observed common-support ranges.
 
@@ -361,7 +361,7 @@ The implementation provides :
 - cell-grouped validation;
 - deterministic output ordering;
 - transactional artifact publication;
-- byte-identical reproduction checks;
+- byte-identical reproduction checks for generated analytical output directories (release evidence bundles are validated through exact bundle hashes and member-level manifests; equivalent packaging runs are not claimed to produce byte-identical archive containers);
 - immutable release-image references;
 - source and evidence manifests; and
 - automated application and release verification.

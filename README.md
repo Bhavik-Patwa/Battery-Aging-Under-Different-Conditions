@@ -391,7 +391,7 @@ The implementation provides :
 - grouped validation by independent cell;
 - explicit unavailable and diagnostic-only results;
 - transactionally published output directories;
-- byte-identical reproduction checks;
+- byte-identical reproduction checks for generated analytical output directories (release evidence bundles are validated through exact bundle hashes and member-level manifests; equivalent packaging runs are not claimed to produce byte-identical archive containers);
 - immutable container references;
 - source and evidence manifests; and
 - vulnerability records bound to the released image identity.

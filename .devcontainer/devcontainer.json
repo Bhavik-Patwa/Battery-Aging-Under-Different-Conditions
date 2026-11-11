@@ -9,7 +9,7 @@
     "mounts": [
         "source=${localEnv:HOME}/.config/gcloud/application_default_credentials.json,target=/root/.config/gcloud/application_default_credentials.json,type=bind,readonly"
     ],
-    "postCreateCommand": "uv sync --locked",
+    "postCreateCommand": "uv sync --frozen --all-groups --no-install-project",
     "customizations": {
         "vscode": {
             "extensions": [
